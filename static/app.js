@@ -354,6 +354,43 @@ function updateDriveAdvice(state) {
   actionEl.textContent = advice.action || "";
 }
 
+function formatHoursShort(hours) {
+  if (hours == null || !Number.isFinite(hours)) return "-";
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (h <= 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function updateChartInsights(state) {
+  const peakEl = $("peak-bac");
+  const legalEl = $("below-legal-in");
+  const riskEl = $("risk-zone");
+  if (!peakEl || !legalEl || !riskEl) return;
+
+  const curve = Array.isArray(state.curve) ? state.curve : [];
+  const peak = curve.length ? Math.max(...curve.map((p) => p.bac || 0)) : state.bac_now || 0;
+  peakEl.textContent = Number(peak).toFixed(3);
+
+  let belowLegal = 0;
+  if (bac >= 0.08) {
+    belowLegal = null;
+    for (const p of curve) {
+      if ((p.t ?? 999) >= 0 && (p.bac ?? 0) < 0.08) {
+        belowLegal = p.t;
+        break;
+      }
+    }
+  }
+  legalEl.textContent = belowLegal == null ? ">24h" : formatHoursShort(belowLegal);
+
+  const bac = state.bac_now ?? 0;
+  if (bac >= 0.08) riskEl.textContent = "High";
+  else if (bac >= 0.05) riskEl.textContent = "Elevated";
+  else if (bac >= 0.02) riskEl.textContent = "Low";
+  else riskEl.textContent = "Minimal";
+}
+
 function setupFeedbackTools() {
   const input = $("feedback-input");
   const emailLink = $("feedback-email-link");
@@ -673,6 +710,7 @@ async function refreshState() {
 
   updateNightTools(state);
   updateDriveAdvice(state);
+  updateChartInsights(state);
 
   const hangoverResult = $("hangover-result");
   const riskEl = $("hangover-risk");

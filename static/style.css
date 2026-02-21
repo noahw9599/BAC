@@ -431,6 +431,32 @@ header h1 {
   font-size: 0.95rem;
 }
 
+.chart-card h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+}
+
+.chart-head {
+  margin-bottom: 0.5rem;
+}
+
+.chart-insights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.chart-insights .mini-card {
+  padding: 0.55rem;
+}
+
+@media (max-width: 460px) {
+  .chart-insights {
+    grid-template-columns: 1fr;
+  }
+}
+
 .drive-status {
   margin: 0.55rem 0 0.2rem;
   font-weight: 700;
@@ -520,6 +546,11 @@ header h1 {
   position: relative;
   height: 220px;
   margin: 1rem 0;
+}
+
+.chart-wrap-large {
+  height: 300px;
+  margin: 0.2rem 0 0.1rem;
 }
 
 /* ---- Setup row ---- */

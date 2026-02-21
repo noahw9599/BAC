@@ -117,6 +117,30 @@
         </div>
       </div>
 
+      <div class="chart-card card-lite">
+        <div class="chart-head">
+          <h3>BAC trend</h3>
+          <p class="mini-help">Watch your curve, legal-limit line, and timing estimates.</p>
+        </div>
+        <div class="chart-insights" id="chart-insights">
+          <div class="mini-card">
+            <p class="mini-title">Peak BAC</p>
+            <p class="mini-value" id="peak-bac">0.000</p>
+          </div>
+          <div class="mini-card">
+            <p class="mini-title">Below 0.08 in</p>
+            <p class="mini-value" id="below-legal-in">-</p>
+          </div>
+          <div class="mini-card">
+            <p class="mini-title">Risk zone now</p>
+            <p class="mini-value" id="risk-zone">None</p>
+          </div>
+        </div>
+        <div class="chart-wrap chart-wrap-large">
+          <canvas id="bac-chart" aria-label="BAC over time"></canvas>
+        </div>
+      </div>
+
       <div class="drive-card card-lite">
         <h3>Drive check</h3>
         <p class="mini-help">Educational estimate only. Never use this as legal proof of fitness to drive.</p>
@@ -179,10 +203,6 @@
         </div>
         <p class="group-summary" id="session-status"></p>
         <div id="saved-session-list" class="friend-list"></div>
-      </div>
-
-      <div class="chart-wrap">
-        <canvas id="bac-chart" aria-label="BAC over time"></canvas>
       </div>
 
       <button type="button" class="btn btn-secondary btn-block" id="btn-reset">Clear all drinks</button>
