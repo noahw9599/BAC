@@ -18,8 +18,13 @@ from bac_app.auth_store import (
     create_user,
     find_user_by_email,
     get_user_by_id,
+    get_group_role,
+    get_group_snapshot,
     get_user_session_payload,
     init_db as init_auth_db,
+    is_group_member,
+    join_group_by_code,
+    list_user_groups,
     list_friend_feed,
     list_friends,
     list_favorite_drinks,
@@ -29,8 +34,13 @@ from bac_app.auth_store import (
     respond_friend_request,
     save_user_session,
     send_friend_request,
+    set_group_member_role,
+    set_group_share_enabled,
     set_share_with_friends,
     track_favorite_drink,
+    create_group,
+    create_group_alert,
+    maybe_create_threshold_alert,
     upsert_presence,
     get_share_with_friends,
 )
@@ -350,6 +360,145 @@ def api_social_feed():
     return jsonify({"items": items})
 
 
+@app.route("/api/social/groups")
+def api_social_groups():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    return jsonify({"items": list_user_groups(_auth_db_path(), user_id=user_id)})
+
+
+@app.route("/api/social/groups/create", methods=["POST"])
+def api_social_group_create():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    name = str(data.get("name", "")).strip()
+    if len(name) < 3:
+        return jsonify({"error": "Group name must be at least 3 characters"}), 400
+    _ensure_auth_db()
+    group = create_group(_auth_db_path(), owner_user_id=user_id, name=name[:60])
+    return jsonify({"ok": True, "group": group})
+
+
+@app.route("/api/social/groups/join", methods=["POST"])
+def api_social_group_join():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    code = str(data.get("invite_code", "")).strip().upper()
+    if len(code) < 4:
+        return jsonify({"error": "Invite code is required"}), 400
+    _ensure_auth_db()
+    ok, msg = join_group_by_code(_auth_db_path(), user_id=user_id, invite_code=code)
+    if not ok:
+        return jsonify({"error": msg}), 400
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/social/groups/<int:group_id>")
+def api_social_group_snapshot(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    snap = get_group_snapshot(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if snap is None:
+        return jsonify({"error": "Group not found or access denied"}), 404
+    return jsonify(snap)
+
+
+@app.route("/api/social/groups/<int:group_id>/share", methods=["POST"])
+def api_social_group_share(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
+        return jsonify({"error": "Not a group member"}), 403
+    data = request.get_json() or {}
+    enabled = bool(data.get("enabled", False))
+    set_group_share_enabled(_auth_db_path(), group_id=group_id, user_id=user_id, enabled=enabled)
+    return jsonify({"ok": True, "share_enabled": enabled})
+
+
+@app.route("/api/social/groups/<int:group_id>/role", methods=["POST"])
+def api_social_group_role(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role != "owner":
+        return jsonify({"error": "Only group owner can change roles"}), 403
+    data = request.get_json() or {}
+    try:
+        target_user_id = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid user_id is required"}), 400
+    new_role = str(data.get("role", "")).strip().lower()
+    if new_role not in {"member", "dd", "mod"}:
+        return jsonify({"error": "Role must be member, dd, or mod"}), 400
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=target_user_id):
+        return jsonify({"error": "Target user not in group"}), 400
+    set_group_member_role(_auth_db_path(), group_id=group_id, target_user_id=target_user_id, role=new_role)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/social/groups/<int:group_id>/location", methods=["POST"])
+def api_social_group_location(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
+        return jsonify({"error": "Not a group member"}), 403
+    data = request.get_json() or {}
+    note = str(data.get("location_note", "")).strip()[:80]
+    model = get_session()
+    bac_now = round(model.bac_now(0.0), 4) if model else 0.0
+    drink_count = len(model.events) if model else 0
+    upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=drink_count, location_note=note)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/social/groups/<int:group_id>/check", methods=["POST"])
+def api_social_group_check(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
+        return jsonify({"error": "Not a group member"}), 403
+    data = request.get_json() or {}
+    try:
+        target_user_id = int(data.get("target_user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid target_user_id is required"}), 400
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=target_user_id):
+        return jsonify({"error": "Target not in group"}), 400
+    kind = str(data.get("kind", "check")).strip().lower()
+    if kind not in {"check", "water", "ride"}:
+        kind = "check"
+    msg_map = {
+        "check": "Check-in requested for a friend.",
+        "water": "Water check requested for a friend.",
+        "ride": "Ride-home support requested for a friend.",
+    }
+    create_group_alert(
+        _auth_db_path(),
+        group_id=group_id,
+        alert_type="check",
+        message=msg_map[kind],
+        from_user_id=user_id,
+        target_user_id=target_user_id,
+    )
+    return jsonify({"ok": True})
+
+
 @app.route("/api/drink-types")
 def api_drink_types():
     return jsonify({"drink_types": list_drink_types()})
@@ -441,6 +590,7 @@ def api_state():
     bac_now = round(model.bac_now(0.0), 4)
     _ensure_auth_db()
     upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=len(events))
+    maybe_create_threshold_alert(_auth_db_path(), user_id=user_id, bac_now=bac_now)
 
     return jsonify({
         "authenticated": True,

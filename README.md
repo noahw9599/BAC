@@ -22,6 +22,7 @@ Important: this is an educational estimator, not a medical device or legal tool.
 - Per-user session isolation (safe for multi-user public testing)
 - Account system (register/login/logout) with per-user saved sessions
 - Persistent feedback API and admin feedback feed
+- Social safety tab with group invite codes, friend network, and opt-in live sharing
 
 ## Tech Stack
 

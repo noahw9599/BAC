@@ -19,6 +19,9 @@ const API = {
   socialRequest: "/api/social/request",
   socialRespond: "/api/social/request/respond",
   socialFeed: "/api/social/feed",
+  socialGroups: "/api/social/groups",
+  socialGroupCreate: "/api/social/groups/create",
+  socialGroupJoin: "/api/social/groups/join",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -42,6 +45,9 @@ let savedSessionDates = [];
 let authMode = "login";
 let activeTab = "current";
 let socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
+let socialGroups = [];
+let activeGroupId = null;
+let activeGroupSnapshot = null;
 
 function $(id) {
   return document.getElementById(id);
@@ -154,11 +160,17 @@ async function refreshAuth() {
 
 function renderSocialStatus() {
   const shareStatus = $("social-share-status");
-  const shareBtn = $("btn-social-share-toggle");
+  const shareBtn = $("btn-group-share-toggle");
   const friendsList = $("social-friends-list");
   const reqList = $("social-requests-list");
-  if (shareStatus) shareStatus.textContent = socialState.share_with_friends ? "Sharing is ON for accepted friends." : "Sharing is OFF.";
-  if (shareBtn) shareBtn.textContent = socialState.share_with_friends ? "Disable sharing" : "Enable sharing";
+  if (shareStatus) {
+    const enabled = activeGroupSnapshot?.members?.find((m) => m.user_id === currentUser?.id)?.share_enabled;
+    shareStatus.textContent = enabled ? "Group sharing ON for this group." : "Group sharing OFF for this group.";
+  }
+  if (shareBtn) {
+    const enabled = activeGroupSnapshot?.members?.find((m) => m.user_id === currentUser?.id)?.share_enabled;
+    shareBtn.textContent = enabled ? "Disable group sharing" : "Enable group sharing";
+  }
 
   if (friendsList) {
     friendsList.innerHTML = "";
@@ -218,6 +230,86 @@ function renderSocialFeed(items) {
   });
 }
 
+function renderGroupList() {
+  const list = $("social-group-list");
+  const label = $("social-active-group-label");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!socialGroups.length) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No groups yet. Create or join one.</div></div>`;
+    if (label) label.textContent = "";
+    return;
+  }
+  socialGroups.forEach((g) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${g.name}</div>
+      <div class="friend-counts">Code ${g.invite_code} | Role ${g.role}</div>
+      <div class="friend-actions">
+        <button type="button" class="chip social-group-select" data-group-id="${g.id}">Open</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+  const active = socialGroups.find((g) => String(g.id) === String(activeGroupId));
+  if (label) label.textContent = active ? `Active group: ${active.name}` : "Select a group to view members and alerts.";
+}
+
+function renderGroupSnapshot() {
+  const membersList = $("social-members-list");
+  const alertsList = $("social-alerts-list");
+  if (!membersList || !alertsList) return;
+  membersList.innerHTML = "";
+  alertsList.innerHTML = "";
+
+  if (!activeGroupSnapshot) {
+    membersList.innerHTML = `<div class="friend-row"><div class="friend-counts">Select a group first.</div></div>`;
+    alertsList.innerHTML = `<div class="friend-row"><div class="friend-counts">No alerts.</div></div>`;
+    renderSocialStatus();
+    return;
+  }
+
+  activeGroupSnapshot.members.forEach((m) => {
+    const bac = m.bac_now == null ? "hidden" : Number(m.bac_now).toFixed(3);
+    const drinks = m.drink_count == null ? "hidden" : m.drink_count;
+    const loc = m.location_note || "-";
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${m.display_name} (${m.role})</div>
+      <div class="friend-counts">BAC ${bac} | Drinks ${drinks} | Location ${loc}</div>
+      <div class="friend-actions">
+        <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="check">Check</button>
+        <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="water">Water</button>
+        <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="ride">Ride</button>
+      </div>
+    `;
+    membersList.appendChild(row);
+  });
+
+  if (!activeGroupSnapshot.alerts.length) {
+    alertsList.innerHTML = `<div class="friend-row"><div class="friend-counts">No alerts yet.</div></div>`;
+  } else {
+    activeGroupSnapshot.alerts.forEach((a) => {
+      const row = document.createElement("div");
+      row.className = "friend-row";
+      row.innerHTML = `<div class="friend-main">${a.alert_type.toUpperCase()}</div><div class="friend-counts">${a.message} | ${a.created_at}</div>`;
+      alertsList.appendChild(row);
+    });
+  }
+  renderSocialStatus();
+}
+
+async function loadGroupSnapshot(groupId) {
+  if (!groupId) return;
+  activeGroupId = String(groupId);
+  const data = await fetchJSON(`${API.socialGroups}/${groupId}`);
+  activeGroupSnapshot = data;
+  renderGroupList();
+  renderGroupSnapshot();
+}
+
 async function loadSocial() {
   if (!currentUser) return;
   try {
@@ -225,21 +317,39 @@ async function loadSocial() {
     renderSocialStatus();
     const feed = await fetchJSON(API.socialFeed);
     renderSocialFeed(feed.items || []);
+    const groups = await fetchJSON(API.socialGroups);
+    socialGroups = groups.items || [];
+    if ((!activeGroupId || !socialGroups.find((g) => String(g.id) === String(activeGroupId))) && socialGroups.length) {
+      activeGroupId = String(socialGroups[0].id);
+    }
+    renderGroupList();
+    if (activeGroupId) {
+      await loadGroupSnapshot(activeGroupId);
+    } else {
+      activeGroupSnapshot = null;
+      renderGroupSnapshot();
+    }
   } catch (_) {
     socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
+    socialGroups = [];
+    activeGroupId = null;
+    activeGroupSnapshot = null;
     renderSocialStatus();
     renderSocialFeed([]);
+    renderGroupList();
+    renderGroupSnapshot();
   }
 }
 
 async function toggleSocialShare() {
-  if (!currentUser) return;
-  const next = !socialState.share_with_friends;
+  if (!currentUser || !activeGroupId) return;
+  const me = activeGroupSnapshot?.members?.find((m) => m.user_id === currentUser.id);
+  const next = !Boolean(me?.share_enabled);
   if (next) {
-    const ok = window.confirm("Share your BAC/drink summary with accepted friends only?");
+    const ok = window.confirm("Share your BAC/drink summary with this group?");
     if (!ok) return;
   }
-  await fetchJSON(API.socialShare, { method: "POST", body: JSON.stringify({ enabled: next }) });
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/share`, { method: "POST", body: JSON.stringify({ enabled: next }) });
   await loadSocial();
 }
 
@@ -264,6 +374,51 @@ async function respondSocialRequest(requestId, action) {
   await fetchJSON(API.socialRespond, {
     method: "POST",
     body: JSON.stringify({ request_id: requestId, action }),
+  });
+  await loadSocial();
+}
+
+async function createSocialGroup() {
+  const name = $("social-group-name")?.value?.trim() || "";
+  const status = $("social-request-status");
+  if (name.length < 3) {
+    if (status) status.textContent = "Group name should be at least 3 characters.";
+    return;
+  }
+  await fetchJSON(API.socialGroupCreate, { method: "POST", body: JSON.stringify({ name }) });
+  if ($("social-group-name")) $("social-group-name").value = "";
+  if (status) status.textContent = "Group created.";
+  await loadSocial();
+}
+
+async function joinSocialGroup() {
+  const code = $("social-group-code")?.value?.trim() || "";
+  const status = $("social-request-status");
+  if (!code) {
+    if (status) status.textContent = "Enter an invite code.";
+    return;
+  }
+  await fetchJSON(API.socialGroupJoin, { method: "POST", body: JSON.stringify({ invite_code: code }) });
+  if ($("social-group-code")) $("social-group-code").value = "";
+  if (status) status.textContent = "Joined group.";
+  await loadSocial();
+}
+
+async function updateGroupLocation() {
+  if (!activeGroupId) return;
+  const note = $("social-location-note")?.value?.trim() || "";
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/location`, {
+    method: "POST",
+    body: JSON.stringify({ location_note: note }),
+  });
+  await loadSocial();
+}
+
+async function sendGroupCheck(targetUserId, kind) {
+  if (!activeGroupId) return;
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/check`, {
+    method: "POST",
+    body: JSON.stringify({ target_user_id: targetUserId, kind }),
   });
   await loadSocial();
 }
@@ -1167,9 +1322,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderSavedSessions(savedSessionsCache);
   });
 
-  $("btn-social-share-toggle")?.addEventListener("click", async () => {
+  $("btn-group-share-toggle")?.addEventListener("click", async () => {
     try {
       await toggleSocialShare();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-create-group")?.addEventListener("click", async () => {
+    try {
+      await createSocialGroup();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-join-group")?.addEventListener("click", async () => {
+    try {
+      await joinSocialGroup();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-location")?.addEventListener("click", async () => {
+    try {
+      await updateGroupLocation();
     } catch (err) {
       const s = $("social-request-status");
       if (s) s.textContent = err.message;
@@ -1183,6 +1362,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!target) return;
     try {
       await respondSocialRequest(target.dataset.requestId, target.dataset.action);
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("social-group-list")?.addEventListener("click", async (e) => {
+    const target = e.target.closest(".social-group-select");
+    if (!target) return;
+    try {
+      await loadGroupSnapshot(target.dataset.groupId);
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("social-members-list")?.addEventListener("click", async (e) => {
+    const target = e.target.closest(".social-check");
+    if (!target) return;
+    try {
+      await sendGroupCheck(target.dataset.targetUserId, target.dataset.kind);
     } catch (err) {
       const s = $("social-request-status");
       if (s) s.textContent = err.message;

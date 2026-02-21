@@ -165,28 +165,55 @@
       <section class="card">
         <h2>Social</h2>
         <p class="mini-help">Only approved friends can see your data, and only if you enable sharing.</p>
-        <div class="feedback-actions">
-          <button type="button" class="btn btn-secondary" id="btn-social-share-toggle">Enable sharing</button>
+        <div class="friend-add">
+          <label class="sr-only" for="social-group-name">New group name</label>
+          <input type="text" id="social-group-name" maxlength="60" placeholder="Create group (e.g. Friday Out)">
+          <button type="button" class="btn btn-primary" id="btn-social-create-group">Create</button>
         </div>
-        <p class="group-summary" id="social-share-status">Sharing is off.</p>
+        <div class="friend-add">
+          <label class="sr-only" for="social-group-code">Invite code</label>
+          <input type="text" id="social-group-code" maxlength="12" placeholder="Join with invite code">
+          <button type="button" class="btn btn-secondary" id="btn-social-join-group">Join</button>
+        </div>
+        <p class="group-summary" id="social-request-status"></p>
 
         <div class="card-lite">
-          <h3>Add friend</h3>
+          <h3>Groups</h3>
+          <div id="social-group-list" class="friend-list"></div>
+          <p class="group-summary" id="social-active-group-label"></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Sharing & location</h3>
+          <div class="feedback-actions">
+            <button type="button" class="btn btn-secondary" id="btn-group-share-toggle">Enable group sharing</button>
+          </div>
+          <div class="friend-add">
+            <label class="sr-only" for="social-location-note">Location note</label>
+            <input type="text" id="social-location-note" maxlength="80" placeholder="Optional location/status (e.g. Library lot)">
+            <button type="button" class="btn btn-secondary" id="btn-social-location">Update</button>
+          </div>
+          <p class="group-summary" id="social-share-status">Select a group first.</p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Members</h3>
+          <div id="social-members-list" class="friend-list"></div>
+        </div>
+
+        <div class="card-lite">
+          <h3>Safety alerts</h3>
+          <div id="social-alerts-list" class="friend-list"></div>
+        </div>
+
+        <div class="card-lite">
+          <h3>Friend network (optional)</h3>
           <div class="friend-add">
             <label class="sr-only" for="social-friend-email">Friend email</label>
             <input type="email" id="social-friend-email" placeholder="friend@example.com">
             <button type="button" class="btn btn-primary" id="btn-social-add-friend">Send request</button>
           </div>
-          <p class="group-summary" id="social-request-status"></p>
-        </div>
-
-        <div class="card-lite">
-          <h3>Incoming requests</h3>
           <div id="social-requests-list" class="friend-list"></div>
-        </div>
-
-        <div class="card-lite">
-          <h3>Friends</h3>
           <div id="social-friends-list" class="friend-list"></div>
         </div>
 

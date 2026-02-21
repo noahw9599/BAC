@@ -327,3 +327,31 @@ def test_social_friend_request_and_feed_flow():
     items = feed.get_json()["items"]
     assert len(items) >= 1
     assert items[0]["display_name"] == "Bob"
+
+
+def test_group_safety_flow():
+    app.config["TESTING"] = True
+    a = app.test_client()
+    b = app.test_client()
+    register(a, email="g1@example.edu", name="G1")
+    register(b, email="g2@example.edu", name="G2")
+
+    created = a.post("/api/social/groups/create", json={"name": "Friday Crew"})
+    assert created.status_code == 200
+    invite_code = created.get_json()["group"]["invite_code"]
+
+    joined = b.post("/api/social/groups/join", json={"invite_code": invite_code})
+    assert joined.status_code == 200
+
+    groups_b = b.get("/api/social/groups").get_json()["items"]
+    group_id = groups_b[0]["id"]
+
+    b.post(f"/api/social/groups/{group_id}/share", json={"enabled": True})
+    b.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    b.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+    b.post(f"/api/social/groups/{group_id}/location", json={"location_note": "Main street"})
+
+    snap = a.get(f"/api/social/groups/{group_id}")
+    assert snap.status_code == 200
+    members = snap.get_json()["members"]
+    assert any(m["display_name"] == "G2" for m in members)

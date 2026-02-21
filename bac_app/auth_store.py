@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 from typing import Any
 
@@ -98,8 +99,54 @@ def init_db(db_path: str) -> None:
                 user_id INTEGER PRIMARY KEY,
                 bac_now REAL NOT NULL DEFAULT 0.0,
                 drink_count INTEGER NOT NULL DEFAULT 0,
+                location_note TEXT,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        presence_cols = {row[1] for row in conn.execute("PRAGMA table_info(user_presence)").fetchall()}
+        if "location_note" not in presence_cols:
+            conn.execute("ALTER TABLE user_presence ADD COLUMN location_note TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS social_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                invite_code TEXT NOT NULL UNIQUE,
+                owner_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(owner_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                share_enabled INTEGER NOT NULL DEFAULT 1,
+                joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (group_id, user_id),
+                FOREIGN KEY(group_id) REFERENCES social_groups(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                from_user_id INTEGER,
+                target_user_id INTEGER,
+                alert_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(group_id) REFERENCES social_groups(id),
+                FOREIGN KEY(from_user_id) REFERENCES users(id),
+                FOREIGN KEY(target_user_id) REFERENCES users(id)
             )
             """
         )
@@ -352,18 +399,26 @@ def get_share_with_friends(db_path: str, *, user_id: int) -> bool:
     return bool(row[0])
 
 
-def upsert_presence(db_path: str, *, user_id: int, bac_now: float, drink_count: int) -> None:
+def upsert_presence(
+    db_path: str,
+    *,
+    user_id: int,
+    bac_now: float,
+    drink_count: int,
+    location_note: str | None = None,
+) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO user_presence (user_id, bac_now, drink_count, updated_at)
-            VALUES (?, ?, ?, datetime('now'))
+            INSERT INTO user_presence (user_id, bac_now, drink_count, location_note, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET
               bac_now=excluded.bac_now,
               drink_count=excluded.drink_count,
+              location_note=COALESCE(excluded.location_note, user_presence.location_note),
               updated_at=datetime('now')
             """,
-            (user_id, float(bac_now), int(drink_count)),
+            (user_id, float(bac_now), int(drink_count), (location_note or None)),
         )
         conn.commit()
 
@@ -507,3 +562,222 @@ def list_friend_feed(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def create_group(db_path: str, *, owner_user_id: int, name: str) -> dict[str, Any]:
+    invite_code = secrets.token_urlsafe(6)[:8].upper()
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO social_groups (name, invite_code, owner_user_id) VALUES (?, ?, ?)",
+            (name.strip(), invite_code, owner_user_id),
+        )
+        group_id = int(cur.lastrowid)
+        conn.execute(
+            "INSERT INTO group_members (group_id, user_id, role, share_enabled) VALUES (?, ?, 'owner', 1)",
+            (group_id, owner_user_id),
+        )
+        conn.commit()
+    return {"id": group_id, "name": name.strip(), "invite_code": invite_code}
+
+
+def list_user_groups(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT g.id, g.name, g.invite_code, gm.role, gm.share_enabled
+            FROM group_members gm
+            JOIN social_groups g ON g.id = gm.group_id
+            WHERE gm.user_id = ?
+            ORDER BY g.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "invite_code": r["invite_code"],
+            "role": r["role"],
+            "share_enabled": bool(r["share_enabled"]),
+        }
+        for r in rows
+    ]
+
+
+def join_group_by_code(db_path: str, *, user_id: int, invite_code: str) -> tuple[bool, str]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        grp = conn.execute(
+            "SELECT id FROM social_groups WHERE invite_code = ?",
+            (invite_code.strip().upper(),),
+        ).fetchone()
+        if grp is None:
+            return False, "Group not found."
+        exists = conn.execute(
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+            (grp["id"], user_id),
+        ).fetchone()
+        if exists is not None:
+            return False, "Already in group."
+        conn.execute(
+            "INSERT INTO group_members (group_id, user_id, role, share_enabled) VALUES (?, ?, 'member', 1)",
+            (grp["id"], user_id),
+        )
+        conn.commit()
+    return True, "Joined group."
+
+
+def is_group_member(db_path: str, *, group_id: int, user_id: int) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id),
+        ).fetchone()
+    return row is not None
+
+
+def set_group_share_enabled(db_path: str, *, group_id: int, user_id: int, enabled: bool) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE group_members SET share_enabled = ? WHERE group_id = ? AND user_id = ?",
+            (1 if enabled else 0, group_id, user_id),
+        )
+        conn.commit()
+
+
+def get_group_role(db_path: str, *, group_id: int, user_id: int) -> str | None:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def set_group_member_role(db_path: str, *, group_id: int, target_user_id: int, role: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?",
+            (role, group_id, target_user_id),
+        )
+        conn.commit()
+
+
+def create_group_alert(
+    db_path: str,
+    *,
+    group_id: int,
+    alert_type: str,
+    message: str,
+    from_user_id: int | None = None,
+    target_user_id: int | None = None,
+) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO group_alerts (group_id, from_user_id, target_user_id, alert_type, message)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (group_id, from_user_id, target_user_id, alert_type, message),
+        )
+        conn.commit()
+
+
+def maybe_create_threshold_alert(db_path: str, *, user_id: int, bac_now: float) -> None:
+    if bac_now < 0.08:
+        return
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        groups = conn.execute(
+            "SELECT group_id FROM group_members WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        for g in groups:
+            recent = conn.execute(
+                """
+                SELECT 1 FROM group_alerts
+                WHERE group_id = ? AND from_user_id = ? AND alert_type = 'threshold'
+                  AND created_at >= datetime('now', '-30 minutes')
+                """,
+                (g["group_id"], user_id),
+            ).fetchone()
+            if recent is None:
+                conn.execute(
+                    """
+                    INSERT INTO group_alerts (group_id, from_user_id, alert_type, message)
+                    VALUES (?, ?, 'threshold', ?)
+                    """,
+                    (g["group_id"], user_id, "High BAC alert: friend may need water/ride support."),
+                )
+        conn.commit()
+
+
+def get_group_snapshot(db_path: str, *, group_id: int, user_id: int) -> dict[str, Any] | None:
+    if not is_group_member(db_path, group_id=group_id, user_id=user_id):
+        return None
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        group = conn.execute(
+            "SELECT id, name, invite_code FROM social_groups WHERE id = ?",
+            (group_id,),
+        ).fetchone()
+        if group is None:
+            return None
+        members = conn.execute(
+            """
+            SELECT u.id, u.display_name, u.email, gm.role, gm.share_enabled,
+                   p.bac_now, p.drink_count, p.location_note, p.updated_at
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            LEFT JOIN user_presence p ON p.user_id = gm.user_id
+            WHERE gm.group_id = ?
+            ORDER BY gm.role DESC, u.display_name COLLATE NOCASE ASC
+            """,
+            (group_id,),
+        ).fetchall()
+        alerts = conn.execute(
+            """
+            SELECT id, alert_type, message, created_at, from_user_id, target_user_id
+            FROM group_alerts
+            WHERE group_id = ?
+            ORDER BY id DESC
+            LIMIT 40
+            """,
+            (group_id,),
+        ).fetchall()
+
+    member_out = []
+    for m in members:
+        share_enabled = bool(m["share_enabled"])
+        can_view = share_enabled or m["id"] == user_id
+        member_out.append(
+            {
+                "user_id": m["id"],
+                "display_name": m["display_name"],
+                "email": m["email"],
+                "role": m["role"],
+                "share_enabled": share_enabled,
+                "bac_now": float(m["bac_now"]) if can_view and m["bac_now"] is not None else None,
+                "drink_count": int(m["drink_count"]) if can_view and m["drink_count"] is not None else None,
+                "location_note": m["location_note"] if can_view else None,
+                "updated_at": m["updated_at"] if can_view else None,
+            }
+        )
+
+    alert_out = [
+        {
+            "id": a["id"],
+            "alert_type": a["alert_type"],
+            "message": a["message"],
+            "created_at": a["created_at"],
+            "from_user_id": a["from_user_id"],
+            "target_user_id": a["target_user_id"],
+        }
+        for a in alerts
+    ]
+    return {
+        "group": {"id": group["id"], "name": group["name"], "invite_code": group["invite_code"]},
+        "members": member_out,
+        "alerts": alert_out,
+    }
