@@ -333,6 +333,27 @@ function updateNightTools(state) {
   }
 }
 
+function updateDriveAdvice(state) {
+  const statusEl = $("drive-status");
+  const msgEl = $("drive-message");
+  const actionEl = $("drive-action");
+  if (!statusEl || !msgEl || !actionEl) return;
+
+  const advice = state.drive_advice;
+  if (!advice) {
+    statusEl.textContent = "No data yet";
+    statusEl.className = "drive-status";
+    msgEl.textContent = "Log drinks to see conservative guidance.";
+    actionEl.textContent = "";
+    return;
+  }
+
+  statusEl.textContent = advice.title || "Drive guidance";
+  statusEl.className = `drive-status ${advice.status || ""}`;
+  msgEl.textContent = advice.message || "";
+  actionEl.textContent = advice.action || "";
+}
+
 function setupFeedbackTools() {
   const input = $("feedback-input");
   const emailLink = $("feedback-email-link");
@@ -651,6 +672,7 @@ async function refreshState() {
   if (sugarEl) sugarEl.textContent = state.total_sugar_g != null ? Math.round(state.total_sugar_g) : 0;
 
   updateNightTools(state);
+  updateDriveAdvice(state);
 
   const hangoverResult = $("hangover-result");
   const riskEl = $("hangover-risk");

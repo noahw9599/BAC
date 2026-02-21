@@ -79,6 +79,8 @@ def test_drink_and_state_roundtrip(client):
     assert data["drink_count"] == 1
     assert data["total_calories"] == 220
     assert data["hangover_plan"] is not None
+    assert data["drive_advice"] is not None
+    assert "status" in data["drive_advice"]
 
 
 def test_reset_keeps_profile_and_clears_events(client):
@@ -182,3 +184,12 @@ def test_feedback_validation(client):
 
     bad_rating = client.post("/api/feedback", json={"message": "x", "rating": 99})
     assert bad_rating.status_code == 400
+
+
+def test_drive_advice_do_not_drive_when_high_bac(client):
+    register(client)
+    client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "liquor", "count": 4, "hours_ago": 0})
+
+    state = client.get("/api/state").get_json()
+    assert state["drive_advice"]["status"] == "do_not_drive"

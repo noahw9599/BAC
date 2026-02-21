@@ -20,6 +20,7 @@ from bac_app.auth_store import (
     save_user_session,
 )
 from bac_app.catalog import list_all_flat, list_by_category
+from bac_app.drive import get_drive_advice
 from bac_app.drinks import list_drink_types
 from bac_app.feedback_store import init_db as init_feedback_db
 from bac_app.feedback_store import list_recent, save_feedback
@@ -101,6 +102,7 @@ def _empty_state() -> dict[str, Any]:
         "total_carbs_g": 0,
         "total_sugar_g": 0,
         "hangover_plan": None,
+        "drive_advice": None,
     }
 
 
@@ -313,6 +315,7 @@ def api_state():
         "total_carbs_g": round(model.total_carbs_g, 1),
         "total_sugar_g": round(model.total_sugar_g, 1),
         "hangover_plan": hangover_plan,
+        "drive_advice": get_drive_advice(model.bac_now(0.0), model.hours_until_sober_from_now()),
     })
 
 
