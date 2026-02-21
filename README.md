@@ -23,6 +23,7 @@ Important: this is an educational estimator, not a medical device or legal tool.
 - Account system (register/login/logout) with per-user saved sessions
 - Persistent feedback API and admin feedback feed
 - Social safety tab with group invite codes, friend network, and opt-in live sharing
+- Guardian view links for read-only family/friend safety monitoring and alerts
 
 ## Tech Stack
 

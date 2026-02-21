@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guardian View</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Guardian View</h1>
+      <p class="tagline">Read-only group safety snapshot.</p>
+    </header>
+
+    <section class="card">
+      <h2 id="g-group-name">Loading...</h2>
+      <p class="group-summary" id="g-meta"></p>
+    </section>
+
+    <section class="card">
+      <h2>Members</h2>
+      <div id="g-members" class="friend-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Alerts</h2>
+      <div id="g-alerts" class="friend-list"></div>
+    </section>
+  </div>
+
+  <script>
+    const TOKEN = "{{ token }}";
+    async function load() {
+      const res = await fetch(`/api/guardian/${TOKEN}`);
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("g-group-name").textContent = data.error || "Unavailable";
+        return;
+      }
+      document.getElementById("g-group-name").textContent = data.group.name;
+      document.getElementById("g-meta").textContent = `Guardian link: ${data.guardian_link.label} | Alerts ${data.guardian_link.receive_alerts ? "ON" : "OFF"}`;
+      const m = document.getElementById("g-members");
+      m.innerHTML = "";
+      if (!data.members.length) m.innerHTML = '<div class="friend-row"><div class="friend-counts">No shared member data.</div></div>';
+      data.members.forEach((x) => {
+        const row = document.createElement("div");
+        row.className = "friend-row";
+        row.innerHTML = `<div class="friend-main">${x.display_name} (${x.role})</div><div class="friend-counts">BAC ${x.bac_now == null ? "-" : x.bac_now.toFixed(3)} | Drinks ${x.drink_count ?? "-"} | Location ${x.location_note || "-"}</div>`;
+        m.appendChild(row);
+      });
+      const a = document.getElementById("g-alerts");
+      a.innerHTML = "";
+      if (!data.alerts.length) a.innerHTML = '<div class="friend-row"><div class="friend-counts">No alerts.</div></div>';
+      data.alerts.forEach((x) => {
+        const row = document.createElement("div");
+        row.className = "friend-row";
+        row.innerHTML = `<div class="friend-main">${x.alert_type.toUpperCase()}</div><div class="friend-counts">${x.message} | ${x.created_at}</div>`;
+        a.appendChild(row);
+      });
+    }
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

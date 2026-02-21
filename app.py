@@ -39,9 +39,14 @@ from bac_app.auth_store import (
     set_share_with_friends,
     track_favorite_drink,
     create_group,
+    create_guardian_link,
     create_group_alert,
+    get_group_snapshot_by_guardian_token,
     maybe_create_threshold_alert,
     upsert_presence,
+    list_guardian_links,
+    revoke_guardian_link,
+    set_guardian_link_alerts,
     get_share_with_friends,
 )
 from bac_app.catalog import list_all_flat, list_by_category
@@ -212,6 +217,11 @@ def index():
     _ensure_feedback_db()
     _ensure_auth_db()
     return render_template("index.html")
+
+
+@app.route("/guardian/<token>")
+def guardian_view(token: str):
+    return render_template("guardian.html", token=token)
 
 
 @app.route("/healthz")
@@ -408,6 +418,74 @@ def api_social_group_snapshot(group_id: int):
     snap = get_group_snapshot(_auth_db_path(), group_id=group_id, user_id=user_id)
     if snap is None:
         return jsonify({"error": "Group not found or access denied"}), 404
+    return jsonify(snap)
+
+
+@app.route("/api/social/groups/<int:group_id>/guardian-links")
+def api_social_group_guardian_links(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
+        return jsonify({"error": "Not a group member"}), 403
+    return jsonify({"items": list_guardian_links(_auth_db_path(), group_id=group_id)})
+
+
+@app.route("/api/social/groups/<int:group_id>/guardian-links", methods=["POST"])
+def api_social_group_guardian_links_create(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role not in {"owner", "mod"}:
+        return jsonify({"error": "Only owner/mod can create guardian links"}), 403
+    data = request.get_json() or {}
+    label = str(data.get("label", "")).strip() or "Guardian"
+    receive_alerts = bool(data.get("receive_alerts", True))
+    link = create_guardian_link(_auth_db_path(), group_id=group_id, label=label[:40], receive_alerts=receive_alerts)
+    return jsonify({"ok": True, "item": link})
+
+
+@app.route("/api/social/groups/<int:group_id>/guardian-links/<int:link_id>/revoke", methods=["POST"])
+def api_social_group_guardian_links_revoke(group_id: int, link_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role not in {"owner", "mod"}:
+        return jsonify({"error": "Only owner/mod can revoke guardian links"}), 403
+    ok = revoke_guardian_link(_auth_db_path(), group_id=group_id, link_id=link_id)
+    if not ok:
+        return jsonify({"error": "Link not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/social/groups/<int:group_id>/guardian-links/<int:link_id>/alerts", methods=["POST"])
+def api_social_group_guardian_links_alerts(group_id: int, link_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role not in {"owner", "mod"}:
+        return jsonify({"error": "Only owner/mod can update guardian links"}), 403
+    data = request.get_json() or {}
+    enabled = bool(data.get("enabled", True))
+    ok = set_guardian_link_alerts(_auth_db_path(), group_id=group_id, link_id=link_id, enabled=enabled)
+    if not ok:
+        return jsonify({"error": "Link not found"}), 404
+    return jsonify({"ok": True, "receive_alerts": enabled})
+
+
+@app.route("/api/guardian/<token>")
+def api_guardian_snapshot(token: str):
+    _ensure_auth_db()
+    snap = get_group_snapshot_by_guardian_token(_auth_db_path(), token=token)
+    if snap is None:
+        return jsonify({"error": "Guardian link is invalid or revoked"}), 404
     return jsonify(snap)
 
 

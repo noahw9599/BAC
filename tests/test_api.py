@@ -355,3 +355,24 @@ def test_group_safety_flow():
     assert snap.status_code == 200
     members = snap.get_json()["members"]
     assert any(m["display_name"] == "G2" for m in members)
+
+    # Guardian link creation and public snapshot.
+    gl = a.post(f"/api/social/groups/{group_id}/guardian-links", json={"label": "Mom", "receive_alerts": True})
+    assert gl.status_code == 200
+    token = gl.get_json()["item"]["token"]
+
+    public_snap = a.get(f"/api/guardian/{token}")
+    assert public_snap.status_code == 200
+    assert public_snap.get_json()["group"]["name"] == "Friday Crew"
+
+    links = a.get(f"/api/social/groups/{group_id}/guardian-links")
+    assert links.status_code == 200
+    link_id = links.get_json()["items"][0]["id"]
+
+    mute = a.post(f"/api/social/groups/{group_id}/guardian-links/{link_id}/alerts", json={"enabled": False})
+    assert mute.status_code == 200
+
+    revoke = a.post(f"/api/social/groups/{group_id}/guardian-links/{link_id}/revoke")
+    assert revoke.status_code == 200
+    public_after = a.get(f"/api/guardian/{token}")
+    assert public_after.status_code == 404

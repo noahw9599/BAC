@@ -22,6 +22,7 @@ const API = {
   socialGroups: "/api/social/groups",
   socialGroupCreate: "/api/social/groups/create",
   socialGroupJoin: "/api/social/groups/join",
+  guardianBase: "/api/social/groups",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -48,6 +49,7 @@ let socialState = { share_with_friends: false, friends: [], incoming_requests: [
 let socialGroups = [];
 let activeGroupId = null;
 let activeGroupSnapshot = null;
+let guardianLinks = [];
 
 function $(id) {
   return document.getElementById(id);
@@ -299,6 +301,36 @@ function renderGroupSnapshot() {
     });
   }
   renderSocialStatus();
+  renderGuardianLinks();
+}
+
+function renderGuardianLinks() {
+  const list = $("social-guardian-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!activeGroupId) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">Select a group first.</div></div>`;
+    return;
+  }
+  if (!guardianLinks.length) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No guardian links yet.</div></div>`;
+    return;
+  }
+  guardianLinks.forEach((g) => {
+    const url = `${window.location.origin}/guardian/${g.token}`;
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${g.label} ${g.is_active ? "" : "(revoked)"}</div>
+      <div class="friend-counts">Alerts ${g.receive_alerts ? "ON" : "OFF"} | ${g.created_at}</div>
+      <div class="friend-actions">
+        <button type="button" class="chip guardian-copy" data-url="${url}">Copy link</button>
+        <button type="button" class="chip guardian-alerts" data-link-id="${g.id}" data-enabled="${g.receive_alerts ? 1 : 0}">${g.receive_alerts ? "Mute alerts" : "Enable alerts"}</button>
+        <button type="button" class="chip guardian-revoke danger" data-link-id="${g.id}">Revoke</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
 }
 
 async function loadGroupSnapshot(groupId) {
@@ -306,6 +338,8 @@ async function loadGroupSnapshot(groupId) {
   activeGroupId = String(groupId);
   const data = await fetchJSON(`${API.socialGroups}/${groupId}`);
   activeGroupSnapshot = data;
+  const guardians = await fetchJSON(`${API.guardianBase}/${groupId}/guardian-links`);
+  guardianLinks = guardians.items || [];
   renderGroupList();
   renderGroupSnapshot();
 }
@@ -327,6 +361,7 @@ async function loadSocial() {
       await loadGroupSnapshot(activeGroupId);
     } else {
       activeGroupSnapshot = null;
+      guardianLinks = [];
       renderGroupSnapshot();
     }
   } catch (_) {
@@ -334,6 +369,7 @@ async function loadSocial() {
     socialGroups = [];
     activeGroupId = null;
     activeGroupSnapshot = null;
+    guardianLinks = [];
     renderSocialStatus();
     renderSocialFeed([]);
     renderGroupList();
@@ -421,6 +457,34 @@ async function sendGroupCheck(targetUserId, kind) {
     body: JSON.stringify({ target_user_id: targetUserId, kind }),
   });
   await loadSocial();
+}
+
+async function createGuardianLink() {
+  if (!activeGroupId) return;
+  const label = $("social-guardian-label")?.value?.trim() || "Guardian";
+  await fetchJSON(`${API.guardianBase}/${activeGroupId}/guardian-links`, {
+    method: "POST",
+    body: JSON.stringify({ label, receive_alerts: true }),
+  });
+  if ($("social-guardian-label")) $("social-guardian-label").value = "";
+  await loadGroupSnapshot(activeGroupId);
+}
+
+async function setGuardianAlerts(linkId, enabled) {
+  if (!activeGroupId) return;
+  await fetchJSON(`${API.guardianBase}/${activeGroupId}/guardian-links/${linkId}/alerts`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+  await loadGroupSnapshot(activeGroupId);
+}
+
+async function revokeGuardian(linkId) {
+  if (!activeGroupId) return;
+  await fetchJSON(`${API.guardianBase}/${activeGroupId}/guardian-links/${linkId}/revoke`, {
+    method: "POST",
+  });
+  await loadGroupSnapshot(activeGroupId);
 }
 
 async function loadServerFavorites() {
@@ -1385,6 +1449,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       const s = $("social-request-status");
       if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-create-guardian")?.addEventListener("click", async () => {
+    try {
+      await createGuardianLink();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("social-guardian-list")?.addEventListener("click", async (e) => {
+    const copy = e.target.closest(".guardian-copy");
+    if (copy) {
+      try {
+        await navigator.clipboard.writeText(copy.dataset.url || "");
+      } catch (_) {}
+      return;
+    }
+    const alerts = e.target.closest(".guardian-alerts");
+    if (alerts) {
+      try {
+        const enabled = alerts.dataset.enabled !== "1";
+        await setGuardianAlerts(alerts.dataset.linkId, enabled);
+      } catch (err) {
+        const s = $("social-request-status");
+        if (s) s.textContent = err.message;
+      }
+      return;
+    }
+    const revoke = e.target.closest(".guardian-revoke");
+    if (revoke) {
+      try {
+        await revokeGuardian(revoke.dataset.linkId);
+      } catch (err) {
+        const s = $("social-request-status");
+        if (s) s.textContent = err.message;
+      }
     }
   });
 });

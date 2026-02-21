@@ -150,6 +150,20 @@ def init_db(db_path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guardian_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                receive_alerts INTEGER NOT NULL DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(group_id) REFERENCES social_groups(id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -780,4 +794,141 @@ def get_group_snapshot(db_path: str, *, group_id: int, user_id: int) -> dict[str
         "group": {"id": group["id"], "name": group["name"], "invite_code": group["invite_code"]},
         "members": member_out,
         "alerts": alert_out,
+    }
+
+
+def create_guardian_link(
+    db_path: str,
+    *,
+    group_id: int,
+    label: str,
+    receive_alerts: bool = True,
+) -> dict[str, Any]:
+    token = secrets.token_urlsafe(24)
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO guardian_links (group_id, label, token, receive_alerts, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (group_id, label.strip(), token, 1 if receive_alerts else 0),
+        )
+        conn.commit()
+        link_id = int(cur.lastrowid)
+    return {
+        "id": link_id,
+        "group_id": group_id,
+        "label": label.strip(),
+        "token": token,
+        "receive_alerts": bool(receive_alerts),
+        "is_active": True,
+    }
+
+
+def list_guardian_links(db_path: str, *, group_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, label, token, receive_alerts, is_active, created_at
+            FROM guardian_links
+            WHERE group_id = ?
+            ORDER BY id DESC
+            """,
+            (group_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "label": r["label"],
+            "token": r["token"],
+            "receive_alerts": bool(r["receive_alerts"]),
+            "is_active": bool(r["is_active"]),
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def revoke_guardian_link(db_path: str, *, group_id: int, link_id: int) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE guardian_links SET is_active = 0 WHERE id = ? AND group_id = ?",
+            (link_id, group_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def set_guardian_link_alerts(db_path: str, *, group_id: int, link_id: int, enabled: bool) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE guardian_links SET receive_alerts = ? WHERE id = ? AND group_id = ?",
+            (1 if enabled else 0, link_id, group_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_group_snapshot_by_guardian_token(db_path: str, *, token: str) -> dict[str, Any] | None:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        link = conn.execute(
+            """
+            SELECT gl.id, gl.group_id, gl.label, gl.receive_alerts, gl.is_active,
+                   g.name, g.invite_code
+            FROM guardian_links gl
+            JOIN social_groups g ON g.id = gl.group_id
+            WHERE gl.token = ?
+            """,
+            (token,),
+        ).fetchone()
+        if link is None or not bool(link["is_active"]):
+            return None
+
+        members = conn.execute(
+            """
+            SELECT u.display_name, gm.role, p.bac_now, p.drink_count, p.location_note, p.updated_at
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            LEFT JOIN user_presence p ON p.user_id = gm.user_id
+            WHERE gm.group_id = ? AND gm.share_enabled = 1
+            ORDER BY gm.role DESC, u.display_name COLLATE NOCASE ASC
+            """,
+            (link["group_id"],),
+        ).fetchall()
+
+        alerts = conn.execute(
+            """
+            SELECT id, alert_type, message, created_at
+            FROM group_alerts
+            WHERE group_id = ?
+            ORDER BY id DESC
+            LIMIT 40
+            """,
+            (link["group_id"],),
+        ).fetchall()
+
+    return {
+        "guardian_link": {
+            "id": link["id"],
+            "label": link["label"],
+            "receive_alerts": bool(link["receive_alerts"]),
+        },
+        "group": {"id": link["group_id"], "name": link["name"], "invite_code": link["invite_code"]},
+        "members": [
+            {
+                "display_name": m["display_name"],
+                "role": m["role"],
+                "bac_now": float(m["bac_now"]) if m["bac_now"] is not None else None,
+                "drink_count": int(m["drink_count"]) if m["drink_count"] is not None else None,
+                "location_note": m["location_note"],
+                "updated_at": m["updated_at"],
+            }
+            for m in members
+        ],
+        "alerts": [
+            {"id": a["id"], "alert_type": a["alert_type"], "message": a["message"], "created_at": a["created_at"]}
+            for a in alerts
+        ],
     }
