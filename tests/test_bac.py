@@ -40,6 +40,7 @@ def test_curve_with_past():
     assert len(curve) > 0
     ts = [p[0] for p in curve]
     assert any(t <= 0.01 and t >= -0.01 for t in ts)
+    assert s.hours_until_sober_from_now() < 24.0
 
 
 def test_session_catalog_nutrition():

@@ -6,6 +6,7 @@ Time: hours from "now" (0); negative = in the past.
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from bac_app.calculations import bac_at_time
 from bac_app.drinks import grams_from_drink
 from bac_app import calculations
 from bac_app.catalog import grams_and_nutrition
@@ -88,8 +89,10 @@ class Session:
     def hours_until_sober_from_now(self) -> float:
         if not self._events:
             return 0.0
-        curve = self.curve(step_hours=0.25, start_hours=0.0, max_hours=24.0)
-        for t, bac in curve:
+        t = 0.0
+        while t <= 24.0:
+            bac = bac_at_time(t, self.events_bac, self.weight_lb, self.is_male)
             if bac <= 0.001:
                 return round(t, 2)
+            t += 0.25
         return 24.0
