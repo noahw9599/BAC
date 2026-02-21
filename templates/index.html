@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drinking Buddy</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🍻 Drinking Buddy</h1>
+      <p class="tagline">Track BAC, calories & when to stop so you’re good for tomorrow. Drink responsibly.</p>
+    </header>
+
+    <section class="setup card" id="setup-section">
+      <h2>Quick setup (one time)</h2>
+      <div class="row">
+        <label>
+          Weight (lb)
+          <input type="number" id="weight" min="80" max="400" value="160" step="1">
+        </label>
+        <label>
+          Sex
+          <select id="sex">
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="btn-setup">Start</button>
+    </section>
+
+    <section class="tracking card" id="tracking-section" style="display: none;">
+      <h2 class="section-title">Tap to add (right now)</h2>
+      <div class="quick-add" id="quick-add">
+        <!-- filled by JS: Bud Light, White Claw, Truly, Vodka soda, Wine, IPA -->
+      </div>
+
+      <details class="more-options" id="more-options">
+        <summary>Other drink or had it earlier?</summary>
+        <div class="add-custom">
+          <label class="sr-only" for="drink-catalog">Drink</label>
+          <select id="drink-catalog" aria-label="Choose drink"></select>
+          <div class="add-buttons">
+            <button type="button" class="btn btn-add" data-count="1">+1</button>
+            <button type="button" class="btn btn-add" data-count="2">+2</button>
+            <button type="button" class="btn btn-add" data-count="3">+3</button>
+          </div>
+          <div class="time-ago-toggle">
+            <span class="time-ago-label">Had it earlier?</span>
+            <div class="time-ago-chips" id="time-ago-chips">
+              <button type="button" class="chip active" data-hours="0">Now</button>
+              <button type="button" class="chip" data-hours="0.5">30 min</button>
+              <button type="button" class="chip" data-hours="1">1 hr</button>
+              <button type="button" class="chip" data-hours="2">2 hr</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="stats" id="stats">
+        <div class="stat">
+          <span class="stat-value" id="bac-now">0.000</span>
+          <span class="stat-label">BAC %</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="sober-in">—</span>
+          <span class="stat-label">Sober in</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="drinks-logged">0</span>
+          <span class="stat-label">Drinks</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="total-calories">0</span>
+          <span class="stat-label">Cal</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="total-carbs">0</span>
+          <span class="stat-label">Carbs</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="total-sugar">0</span>
+          <span class="stat-label">Sugar</span>
+        </div>
+      </div>
+
+      <div class="hangover-card">
+        <h3>😴 Class tomorrow?</h3>
+        <label class="sr-only" for="hours-until-target">Need to be sharp in</label>
+        <select id="hours-until-target">
+          <option value="">When do you need to be sharp?</option>
+          <option value="8">8 hours</option>
+          <option value="10">10 hours</option>
+          <option value="12">12 hours</option>
+          <option value="14">14 hours (e.g. 8am)</option>
+        </select>
+        <div id="hangover-result" class="hangover-result" style="display: none;">
+          <p class="hangover-risk" id="hangover-risk"></p>
+          <p class="hangover-stop" id="hangover-stop"></p>
+          <p class="hangover-message" id="hangover-message"></p>
+        </div>
+      </div>
+
+      <div class="night-tools card-lite">
+        <h3>All-night tools</h3>
+        <div class="night-grid">
+          <div class="mini-card">
+            <p class="mini-title">Hydration</p>
+            <p class="mini-value" id="water-progress">0 / 0 oz</p>
+            <p class="mini-help" id="water-hint">Add water to pace the night.</p>
+            <button type="button" class="btn btn-add-water" id="btn-add-water">+8 oz water</button>
+          </div>
+          <div class="mini-card">
+            <p class="mini-title">Pace coach</p>
+            <p class="mini-help" id="pace-coach">Log drinks to get pacing advice.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="friend-group card-lite">
+        <h3>Friend group</h3>
+        <p class="mini-help">Track your group all night and see who is getting up there.</p>
+        <div class="friend-add">
+          <label class="sr-only" for="friend-name">Friend name</label>
+          <input type="text" id="friend-name" maxlength="24" placeholder="Add friend name">
+          <button type="button" class="btn btn-primary" id="btn-add-friend">Add</button>
+        </div>
+        <p class="group-summary" id="group-summary">No friends added yet.</p>
+        <div id="friend-list" class="friend-list"></div>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="bac-chart" aria-label="BAC over time"></canvas>
+      </div>
+
+      <button type="button" class="btn btn-secondary btn-block" id="btn-reset">Clear all drinks</button>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
