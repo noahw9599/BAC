@@ -1,93 +1,100 @@
-# BAC Tracker
+# BAC Tracker Web
 
-A web app that estimates **blood alcohol content (BAC)** using the Widmark formula. Enter your weight and sex, log drinks (with time), and see your estimated BAC and a graph over time. Built for education and personal tracking — **never use in place of a breathalyzer; never drive after drinking.**
+A production-style Flask app for estimating blood alcohol concentration (BAC) using a Widmark-based model.
 
-![BAC Tracker](https://img.shields.io/badge/python-3.10+-blue) ![Flask](https://img.shields.io/badge/Flask-3.0+-green)
+This project is designed to demonstrate:
+- clean backend API design
+- modular domain logic (`bac_app/`)
+- test coverage with `pytest`
+- a practical frontend for real-time tracking and planning
+
+Important: this is an educational estimator, not a medical device or legal tool. Never drive after drinking.
 
 ## Features
 
-- **Widmark-style BAC math**: weight, sex (distribution ratio), standard drinks (14 g ethanol), 0.015%/hr elimination
-- **Web UI**: set profile → add drinks (type, count, “hours ago”) → see current BAC, “sober in X hours,” and a live BAC-over-time chart
-- **Modular core** (`bac_app/`): same logic can power CLI, API, or a future iOS app
+- BAC estimation from weight, sex, drink type, count, and timing
+- Drink catalog with calories, carbs, and sugar
+- BAC chart over time (Chart.js)
+- "Need to be sharp" planner with stop-by guidance
+- Night tools: hydration tracker and pace coach
+- Local social tracking: friend group drink/water counters
 
-## Quick start (local)
+## Tech Stack
 
-**If the project is already on your machine** (e.g. in `Documents\Projects\bac_tracker_web`), open PowerShell and run:
+- Python 3.10+
+- Flask 3
+- Vanilla JavaScript + Chart.js
+- Pytest
+- Gunicorn (deployment)
+
+## Project Structure
+
+```text
+bac_tracker_web/
+  app.py                  # Flask routes and API handlers
+  bac_app/
+    calculations.py       # BAC model and curve generation
+    session.py            # session state + drink event operations
+    catalog.py            # drink catalog + nutrition metadata
+    drinks.py             # base drink definitions and conversion helpers
+    hangover.py           # stop-by and risk guidance logic
+    graph.py              # graph helper for optional static image export
+  templates/
+    index.html            # app UI shell
+  static/
+    app.js                # frontend interactions and API integration
+    style.css             # styling
+  tests/
+    test_bac.py           # core math/session tests
+    test_api.py           # API behavior tests
+```
+
+## Local Development
 
 ```powershell
 cd C:\Users\noahw\Documents\Projects\bac_tracker_web
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python app.py
 ```
 
-If you see an error about running scripts, run once: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`, then try activating again.
+Open `http://127.0.0.1:5000`.
 
-**If you need to clone from GitHub** (install [Git for Windows](https://git-scm.com/download/win) first), then:
+## Running Tests
 
 ```powershell
-cd C:\Users\noahw\Documents\Projects
-git clone https://github.com/YOUR_USERNAME/bac_tracker_web.git
-cd bac_tracker_web
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python app.py
+python -m pytest -q -p no:debugging
 ```
 
-**macOS / Linux (bash):**
+Note: `-p no:debugging` avoids a local environment conflict if a separate top-level folder named `code/` exists on your machine.
+
+## API Endpoints
+
+- `GET /healthz`
+- `GET /api/catalog`
+- `POST /api/setup`
+- `POST /api/drink`
+- `GET /api/state`
+- `GET /api/hangover-plan`
+- `POST /api/reset`
+
+## Deployment
+
+The app is ready for platforms like Render/Railway/Fly/Heroku.
+
+Start command:
 
 ```bash
-cd /path/to/bac_tracker_web
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+gunicorn -w 1 -b 0.0.0.0:$PORT app:app
 ```
 
-Then open **http://127.0.0.1:5000** in your browser. Set weight and sex, then add drinks and watch the BAC curve update.
+## Safety and Scope
 
-## Run online (deploy)
-
-The app listens on `0.0.0.0` and respects the `PORT` environment variable, so it runs on:
-
-- **Render**: New Web Service → connect repo → Build: `pip install -r requirements.txt`, Start: `gunicorn -w 1 -b 0.0.0.0:$PORT app:app`
-- **Railway / Fly.io / Heroku**: Set `PORT`; start command: `gunicorn -w 1 -b 0.0.0.0:$PORT app:app`
-
-No database required; session is in-memory (single user per process).
-
-## Project layout
-
-| Path | Purpose |
-|------|--------|
-| `app.py` | Flask web app (routes, API) |
-| `templates/`, `static/` | Web UI (HTML, CSS, JS, Chart.js) |
-| `bac_app/` | Core logic: drinks, Widmark calculations, session, graph data |
-| `bac_app/drinks.py` | Drink types, standard drink (14 g), grams from volume/ABV |
-| `bac_app/calculations.py` | BAC at time, BAC curve, elimination rate |
-| `bac_app/session.py` | Session (weight, sex, drink log), add drink, BAC now, curve |
-| `bac_app/graph.py` | Curve data for chart; optional PNG export (matplotlib) |
-| `bac_app/main.py` | CLI: `python -m bac_app.main --demo [--graph out.png]` |
-| `code/` | Separate task-workflow scripts (scout/prioritize/execute) |
-
-## API (for testing or integration)
-
-- `GET /api/drink-types` — list drink types
-- `POST /api/setup` — body: `{ "weight_lb": 160, "is_male": true }`
-- `POST /api/drink` — body: `{ "drink_key": "beer", "count": 1, "hours_ago": 0 }`
-- `GET /api/state` — current BAC, curve `[{t, bac}]`, hours until sober, drink count
-- `POST /api/reset` — clear drinks (keep profile)
-
-## Tests
-
-With the venv activated:
-
-```powershell
-pip install -r requirements.txt
-pytest tests/ -v
-```
+- BAC varies by person, food intake, hydration, medications, and many other factors.
+- This tool can under- or over-estimate real BAC.
+- Use it for awareness only.
 
 ## License
 
-MIT (or your choice). Include a `LICENSE` file in the repo if you specify one.
+MIT (see `LICENSE`).

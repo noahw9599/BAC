@@ -1,13 +1,14 @@
-"""
-BAC calculations using Widmark-style formula and linear elimination.
-- Rise: BAC = [grams / (body_weight_g × r)] × 100
-- r = 0.68 male, 0.55 female
-- Elimination: 0.015% BAC per hour (typical)
+"""BAC calculations using Widmark-style rise and linear elimination.
+
+Model:
+- Rise: BAC = [grams / (body_weight_g * r)] * 100
+- r = 0.68 (male), 0.55 (female)
+- Elimination: 0.015 BAC percentage points per hour
 """
 
 from typing import List, Optional, Tuple
 
-# Distribution ratio (Widmark r): male 0.68, female 0.55
+# Distribution ratio (Widmark r)
 R_MALE = 0.68
 R_FEMALE = 0.55
 
@@ -20,10 +21,7 @@ def _body_weight_grams(weight_lb: float) -> float:
 
 
 def bac_rise_from_grams(grams_alcohol: float, weight_lb: float, is_male: bool = True) -> float:
-    """
-    Immediate BAC rise (%) from a single dose of alcohol (Widmark).
-    weight_lb: body weight in pounds.
-    """
+    """Immediate BAC rise (%) from a single dose of alcohol."""
     w_g = _body_weight_grams(weight_lb)
     r = R_MALE if is_male else R_FEMALE
     raw = grams_alcohol / (w_g * r)
@@ -36,10 +34,7 @@ def bac_at_time(
     weight_lb: float,
     is_male: bool = True,
 ) -> float:
-    """
-    BAC (%) at a given time from a list of (time_hours, grams_alcohol) events.
-    Each drink adds a rise then decays at ELIMINATION_PER_HOUR.
-    """
+    """BAC (%) at a given time from a list of (time_hours, grams_alcohol) events."""
     w_g = _body_weight_grams(weight_lb)
     r = R_MALE if is_male else R_FEMALE
     bac = 0.0
@@ -53,6 +48,25 @@ def bac_at_time(
     return round(bac, 4)
 
 
+def _curve_end_time(
+    events: List[Tuple[float, float]],
+    weight_lb: float,
+    is_male: bool,
+    max_hours: Optional[float],
+) -> float:
+    """Estimated absolute end-time for plotting where BAC reaches ~0."""
+    if not events:
+        return 0.0
+
+    estimated_end = max(
+        t + (bac_rise_from_grams(g, weight_lb, is_male) / ELIMINATION_PER_HOUR)
+        for t, g in events
+    )
+    if max_hours is not None:
+        return min(estimated_end, max_hours)
+    return estimated_end
+
+
 def bac_curve(
     events: List[Tuple[float, float]],
     weight_lb: float,
@@ -61,39 +75,35 @@ def bac_curve(
     start_hours: Optional[float] = None,
     max_hours: Optional[float] = None,
 ) -> List[Tuple[float, float]]:
-    """
-    (time_hours, bac_percent) pairs for graphing.
-    start_hours: first time (default: 0). Use negative to show past (e.g. "now" = 0, drinks in past).
-    If max_hours is None, run until BAC would be 0 (based on last event).
-    """
+    """Return (time_hours, bac_percent) pairs for graphing."""
     if not events:
         return []
-    if start_hours is None:
-        start_hours = 0.0
-    last_time = max(t for t, _ in events)
-    last_grams = sum(g for t, g in events if t == last_time)
-    rise_last = bac_rise_from_grams(last_grams, weight_lb, is_male)
-    duration = last_time + (rise_last / ELIMINATION_PER_HOUR) if ELIMINATION_PER_HOUR else 24.0
-    if max_hours is not None:
-        duration = min(duration, max_hours)
-    duration = max(duration, start_hours)
-    points = []
-    t = start_hours
-    while t <= duration:
-        bac = bac_at_time(t, events, weight_lb, is_male)
-        points.append((t, bac))
+    if step_hours <= 0:
+        raise ValueError("step_hours must be > 0")
+
+    start = 0.0 if start_hours is None else start_hours
+    end = _curve_end_time(events, weight_lb, is_male, max_hours)
+    end = max(end, start)
+
+    points: List[Tuple[float, float]] = []
+    t = start
+    while t <= end:
+        points.append((t, bac_at_time(t, events, weight_lb, is_male)))
         t += step_hours
     return points
 
 
 def time_to_sober(events: List[Tuple[float, float]], weight_lb: float, is_male: bool = True) -> float:
-    """Hours from first drink until BAC returns to 0 (within 0.001%)."""
+    """Hours from first drink until BAC returns to near-zero (<= 0.001)."""
     if not events:
         return 0.0
+
     first = min(t for t, _ in events)
-    # sample from first drink to 48h
-    curve = bac_curve(events, weight_lb, is_male, step_hours=0.25, max_hours=48.0)
-    for t, bac in reversed(curve):
-        if bac <= 0.001:
-            return t - first
-    return 48.0 - first
+    end = first + 48.0
+    t = first
+    while t <= end:
+        if bac_at_time(t, events, weight_lb, is_male) <= 0.001:
+            return round(t - first, 2)
+        t += 0.25
+
+    return 48.0

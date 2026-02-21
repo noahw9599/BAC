@@ -17,7 +17,6 @@ const MAX_FRIENDS = 12;
 let bacChart = null;
 let catalogFlat = [];
 let catalogById = {};
-let hoursAgo = 0;
 let friends = [];
 
 function $(id) {
@@ -358,7 +357,7 @@ async function refreshState() {
   }
 
   const soberEl = document.querySelector("#sober-in");
-  if (soberEl) soberEl.textContent = state.configured ? state.hours_until_sober_from_now.toFixed(1) + "h" : "—";
+  if (soberEl) soberEl.textContent = state.configured ? state.hours_until_sober_from_now.toFixed(1) + "h" : "-";
 
   const countEl = $("drinks-logged");
   if (countEl) countEl.textContent = state.drink_count ?? 0;

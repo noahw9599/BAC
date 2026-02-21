@@ -1,16 +1,26 @@
-"""
-BAC Tracker / Drinking Buddy — Flask web app. Run from project root: python app.py
+"""BAC Tracker Flask app.
+
+Run from project root:
+    python app.py
 """
 
 import os
-from flask import Flask, render_template, request, jsonify
+from typing import Any
 
-from bac_app.session import Session
+from flask import Flask, jsonify, render_template, request
+
+from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drinks import list_drink_types
-from bac_app.catalog import list_by_category, list_all_flat
 from bac_app.hangover import get_plan as get_hangover_plan
+from bac_app.session import Session
 
 app = Flask(__name__)
+
+MIN_WEIGHT_LB = 80.0
+MAX_WEIGHT_LB = 400.0
+MIN_COUNT = 0.25
+MAX_COUNT = 20.0
+MAX_HOURS_AGO = 24.0
 
 _current_session: Session | None = None
 
@@ -24,9 +34,50 @@ def set_session(session: Session | None):
     _current_session = session
 
 
+def _parse_bool(value: Any, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "male"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "female"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def _clamp_float(value: Any, default: float, min_value: float, max_value: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
+def _empty_state() -> dict[str, Any]:
+    return {
+        "configured": False,
+        "bac_now": 0,
+        "curve": [],
+        "hours_until_sober_from_now": 0,
+        "drink_count": 0,
+        "total_calories": 0,
+        "total_carbs_g": 0,
+        "total_sugar_g": 0,
+        "hangover_plan": None,
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify({"ok": True})
 
 
 @app.route("/api/drink-types")
@@ -45,9 +96,8 @@ def api_catalog():
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
     data = request.get_json() or {}
-    weight = float(data.get("weight_lb", 160))
-    is_male = data.get("is_male", True)
-    weight = max(80, min(400, weight))
+    weight = _clamp_float(data.get("weight_lb"), 160.0, MIN_WEIGHT_LB, MAX_WEIGHT_LB)
+    is_male = _parse_bool(data.get("is_male"), default=True)
     set_session(Session(weight_lb=weight, is_male=is_male))
     return jsonify({"ok": True, "weight_lb": weight, "is_male": is_male})
 
@@ -57,11 +107,10 @@ def api_drink():
     session = get_session()
     if session is None:
         return jsonify({"error": "Set weight and sex first"}), 400
+
     data = request.get_json() or {}
-    count = float(data.get("count", 1))
-    hours_ago = float(data.get("hours_ago", 0))
-    count = max(0.25, min(20, count))
-    hours_ago = max(0, min(24, hours_ago))
+    count = _clamp_float(data.get("count"), 1.0, MIN_COUNT, MAX_COUNT)
+    hours_ago = _clamp_float(data.get("hours_ago"), 0.0, 0.0, MAX_HOURS_AGO)
 
     if data.get("catalog_id"):
         session.add_drink_catalog(hours_ago, data["catalog_id"], count)
@@ -77,17 +126,7 @@ def api_state():
     hours_until_target = request.args.get("hours_until_target", type=float)
 
     if session is None:
-        return jsonify({
-            "configured": False,
-            "bac_now": 0,
-            "curve": [],
-            "hours_until_sober_from_now": 0,
-            "drink_count": 0,
-            "total_calories": 0,
-            "total_carbs_g": 0,
-            "total_sugar_g": 0,
-            "hangover_plan": None,
-        })
+        return jsonify(_empty_state())
 
     events = session.events
     start_h = min((t for t, _ in events), default=0) - 0.5
@@ -98,7 +137,7 @@ def api_state():
     hangover_plan = None
     if hours_until_target is not None and hours_until_target >= 0:
         hangover_plan = get_hangover_plan(
-            session._events_bac(),
+            session.events_bac,
             session.weight_lb,
             session.is_male,
             hours_until_target,
@@ -125,8 +164,9 @@ def api_hangover_plan():
     hours = request.args.get("hours_until_target", type=float)
     if session is None or hours is None or hours < 0:
         return jsonify({"error": "Configure session and provide hours_until_target"}), 400
+
     plan = get_hangover_plan(
-        session._events_bac(),
+        session.events_bac,
         session.weight_lb,
         session.is_male,
         hours,

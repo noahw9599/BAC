@@ -24,6 +24,10 @@ class Session:
     def _events_bac(self) -> List[Tuple[float, float]]:
         return [(e[0], e[1]) for e in self._events]
 
+    @property
+    def events_bac(self) -> List[Tuple[float, float]]:
+        return self._events_bac()
+
     def add_drink(self, hours_from_start: float, drink_key: str, count: float = 1.0) -> None:
         g = grams_from_drink(drink_key, volume_oz=None, count=count)
         self._events.append((hours_from_start, g, 0, 0.0, 0.0))
@@ -40,7 +44,7 @@ class Session:
 
     @property
     def events(self) -> List[Tuple[float, float]]:
-        return sorted(self._events_bac(), key=lambda x: x[0])
+        return sorted(self.events_bac, key=lambda x: x[0])
 
     @property
     def events_full(self) -> List[EventTuple]:
@@ -56,12 +60,12 @@ class Session:
 
     @property
     def total_sugar_g(self) -> float:
-        return sum(e[4] for e in self._events if len(e) > 4)
+        return sum(e[4] for e in self._events)
 
     def bac_now(self, current_hours: Optional[float] = None) -> float:
         if current_hours is None:
-            current_hours = max((t for t, _ in self._events_bac()), default=0.0)
-        return calculations.bac_at_time(current_hours, self._events_bac(), self.weight_lb, self.is_male)
+            current_hours = max((t for t, _ in self.events_bac), default=0.0)
+        return calculations.bac_at_time(current_hours, self.events_bac, self.weight_lb, self.is_male)
 
     def curve(
         self,
@@ -70,7 +74,7 @@ class Session:
         max_hours: Optional[float] = None,
     ):
         return calculations.bac_curve(
-            self._events_bac(),
+            self.events_bac,
             self.weight_lb,
             self.is_male,
             step_hours=step_hours,
@@ -79,7 +83,7 @@ class Session:
         )
 
     def hours_until_sober(self) -> float:
-        return calculations.time_to_sober(self._events_bac(), self.weight_lb, self.is_male)
+        return calculations.time_to_sober(self.events_bac, self.weight_lb, self.is_male)
 
     def hours_until_sober_from_now(self) -> float:
         if not self._events:

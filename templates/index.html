@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Drinking Buddy</title>
+  <title>BAC Tracker</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🍻 Drinking Buddy</h1>
-      <p class="tagline">Track BAC, calories & when to stop so you’re good for tomorrow. Drink responsibly.</p>
+      <h1>BAC Tracker</h1>
+      <p class="tagline">Track BAC, nutrition, and recovery timing. Educational use only. Never drive after drinking.</p>
     </header>
 
     <section class="setup card" id="setup-section">
@@ -35,7 +35,7 @@
     <section class="tracking card" id="tracking-section" style="display: none;">
       <h2 class="section-title">Tap to add (right now)</h2>
       <div class="quick-add" id="quick-add">
-        <!-- filled by JS: Bud Light, White Claw, Truly, Vodka soda, Wine, IPA -->
+        <!-- filled by JS -->
       </div>
 
       <details class="more-options" id="more-options">
@@ -66,7 +66,7 @@
           <span class="stat-label">BAC %</span>
         </div>
         <div class="stat">
-          <span class="stat-value" id="sober-in">—</span>
+          <span class="stat-value" id="sober-in">-</span>
           <span class="stat-label">Sober in</span>
         </div>
         <div class="stat">
@@ -88,14 +88,14 @@
       </div>
 
       <div class="hangover-card">
-        <h3>😴 Class tomorrow?</h3>
+        <h3>Need to be sharp tomorrow?</h3>
         <label class="sr-only" for="hours-until-target">Need to be sharp in</label>
         <select id="hours-until-target">
           <option value="">When do you need to be sharp?</option>
           <option value="8">8 hours</option>
           <option value="10">10 hours</option>
           <option value="12">12 hours</option>
-          <option value="14">14 hours (e.g. 8am)</option>
+          <option value="14">14 hours (for an early morning)</option>
         </select>
         <div id="hangover-result" class="hangover-result" style="display: none;">
           <p class="hangover-risk" id="hangover-risk"></p>
@@ -122,7 +122,7 @@
 
       <div class="friend-group card-lite">
         <h3>Friend group</h3>
-        <p class="mini-help">Track your group all night and see who is getting up there.</p>
+        <p class="mini-help">Track your group all night and see who may need to slow down.</p>
         <div class="friend-add">
           <label class="sr-only" for="friend-name">Friend name</label>
           <input type="text" id="friend-name" maxlength="24" placeholder="Add friend name">
