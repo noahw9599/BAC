@@ -11,3 +11,7 @@ services:
         generateValue: true
       - key: SESSION_COOKIE_SECURE
         value: "1"
+      - key: FEEDBACK_DB_PATH
+        value: /tmp/feedback.db
+      - key: ADMIN_TOKEN
+        generateValue: true

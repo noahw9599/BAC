@@ -4,6 +4,7 @@ const API = {
   drink: "/api/drink",
   state: "/api/state",
   reset: "/api/reset",
+  feedback: "/api/feedback",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -253,6 +254,10 @@ function setupFeedbackTools() {
   const input = $("feedback-input");
   const emailLink = $("feedback-email-link");
   const copyBtn = $("btn-copy-feedback");
+  const submitBtn = $("btn-submit-feedback");
+  const ratingEl = $("feedback-rating");
+  const contactEl = $("feedback-contact");
+  const statusEl = $("feedback-status");
   if (!input || !emailLink) return;
 
   input.value = getStoredText(STORAGE_FEEDBACK_DRAFT, "");
@@ -277,6 +282,40 @@ function setupFeedbackTools() {
         copyBtn.textContent = "Copy feedback";
       }, 1200);
     } catch (_) {}
+  });
+
+  submitBtn?.addEventListener("click", async () => {
+    const message = input.value.trim();
+    if (!message) {
+      if (statusEl) statusEl.textContent = "Add feedback text before sending.";
+      return;
+    }
+    if (statusEl) statusEl.textContent = "Sending...";
+    submitBtn.disabled = true;
+    try {
+      await fetchJSON(API.feedback, {
+        method: "POST",
+        body: JSON.stringify({
+          message,
+          rating: ratingEl?.value || null,
+          contact: contactEl?.value?.trim() || null,
+          context: {
+            ua: navigator.userAgent,
+            url: window.location.pathname,
+          },
+        }),
+      });
+      if (statusEl) statusEl.textContent = "Thanks, feedback sent.";
+      input.value = "";
+      if (ratingEl) ratingEl.value = "";
+      if (contactEl) contactEl.value = "";
+      setStoredText(STORAGE_FEEDBACK_DRAFT, "");
+      updateEmailHref();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Could not send: ${err.message}`;
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 }
 

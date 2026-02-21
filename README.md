@@ -84,6 +84,8 @@ python -m pytest -q -p no:debugging
 - `GET /api/state`
 - `GET /api/hangover-plan`
 - `POST /api/reset`
+- `POST /api/feedback`
+- `GET /api/feedback/recent?token=...` (admin)
 
 ## Deployment (Render)
 
@@ -93,6 +95,8 @@ This repo includes `render.yaml` for one-click deployment.
 2. In Render, choose `New +` -> `Blueprint`.
 3. Select this repo and deploy.
 4. After deploy, open the generated URL and share it.
+5. View tester feedback via:
+   `https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
 
 Manual start command (if not using blueprint):
 

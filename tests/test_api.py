@@ -5,6 +5,14 @@ import pytest
 from app import app
 
 
+@pytest.fixture(autouse=True)
+def feedback_db_env(tmp_path, monkeypatch):
+    db_path = tmp_path / "feedback.db"
+    monkeypatch.setenv("FEEDBACK_DB_PATH", str(db_path))
+    monkeypatch.setenv("ADMIN_TOKEN", "test-token")
+    yield
+
+
 @pytest.fixture
 def client():
     app.config["TESTING"] = True
@@ -82,3 +90,32 @@ def test_sessions_are_isolated_per_client():
     assert c1_state["configured"] is True
     assert c1_state["drink_count"] == 1
     assert c2_state["configured"] is False
+
+
+def test_feedback_submit_and_recent_requires_token(client):
+    res = client.post(
+        "/api/feedback",
+        json={"message": "Great pace coach", "rating": 5, "contact": "tester@example.com"},
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body["feedback_id"] >= 1
+
+    forbidden = client.get("/api/feedback/recent")
+    assert forbidden.status_code == 403
+
+    recent = client.get("/api/feedback/recent?token=test-token")
+    assert recent.status_code == 200
+    items = recent.get_json()["items"]
+    assert len(items) == 1
+    assert items[0]["message"] == "Great pace coach"
+    assert items[0]["rating"] == 5
+
+
+def test_feedback_validation(client):
+    missing = client.post("/api/feedback", json={"message": ""})
+    assert missing.status_code == 400
+
+    bad_rating = client.post("/api/feedback", json={"message": "x", "rating": 99})
+    assert bad_rating.status_code == 400

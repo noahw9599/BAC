@@ -5,12 +5,14 @@ Run from project root:
 """
 
 import os
+from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, render_template, request, session as flask_session
 
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drinks import list_drink_types
+from bac_app.feedback_store import init_db, list_recent, save_feedback
 from bac_app.hangover import get_plan as get_hangover_plan
 from bac_app.session import Session
 
@@ -26,6 +28,21 @@ MIN_COUNT = 0.25
 MAX_COUNT = 20.0
 MAX_HOURS_AGO = 24.0
 SESSION_KEY = "bac_session"
+DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
+
+
+def _feedback_db_path() -> str:
+    return os.environ.get("FEEDBACK_DB_PATH", DEFAULT_FEEDBACK_DB_PATH)
+
+
+def _ensure_feedback_db() -> None:
+    db_path = Path(_feedback_db_path())
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    init_db(str(db_path))
+
+
+def _admin_token() -> str:
+    return os.environ.get("ADMIN_TOKEN", "")
 
 
 def _parse_bool(value: Any, default: bool = True) -> bool:
@@ -107,6 +124,7 @@ def set_session(model: Session | None):
 
 @app.route("/")
 def index():
+    _ensure_feedback_db()
     return render_template("index.html")
 
 
@@ -217,6 +235,52 @@ def api_reset():
         return jsonify({"ok": True})
     set_session(Session(weight_lb=model.weight_lb, is_male=model.is_male))
     return jsonify({"ok": True})
+
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    _ensure_feedback_db()
+    data = request.get_json() or {}
+    message = str(data.get("message", "")).strip()
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+    message = message[:1200]
+
+    rating_raw = data.get("rating")
+    rating = None
+    if rating_raw is not None and rating_raw != "":
+        try:
+            rating = int(rating_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "rating must be an integer 1-5"}), 400
+        if rating < 1 or rating > 5:
+            return jsonify({"error": "rating must be between 1 and 5"}), 400
+
+    contact = str(data.get("contact", "")).strip()[:120] or None
+    context = data.get("context")
+    if not isinstance(context, dict):
+        context = {}
+
+    feedback_id = save_feedback(
+        _feedback_db_path(),
+        message=message,
+        rating=rating,
+        contact=contact,
+        context=context,
+        user_agent=request.headers.get("User-Agent", ""),
+    )
+    return jsonify({"ok": True, "feedback_id": feedback_id})
+
+
+@app.route("/api/feedback/recent")
+def api_feedback_recent():
+    _ensure_feedback_db()
+    token = request.args.get("token", "")
+    if not _admin_token() or token != _admin_token():
+        return jsonify({"error": "forbidden"}), 403
+
+    limit = request.args.get("limit", type=int) or 25
+    return jsonify({"items": list_recent(_feedback_db_path(), limit=limit)})
 
 
 if __name__ == "__main__":

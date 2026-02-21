@@ -439,9 +439,31 @@ header h1 {
   resize: vertical;
 }
 
+.feedback-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.feedback-meta label {
+  font-size: 0.78rem;
+}
+
+.feedback-meta select,
+.feedback-meta input {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.9rem;
+}
+
 .feedback-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
   margin-top: 0.55rem;
 }
@@ -453,6 +475,10 @@ header h1 {
 }
 
 @media (max-width: 420px) {
+  .feedback-meta {
+    grid-template-columns: 1fr;
+  }
+
   .feedback-actions {
     grid-template-columns: 1fr;
   }
