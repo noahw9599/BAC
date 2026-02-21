@@ -21,7 +21,6 @@ const STORAGE_LAST_DRINK = "drinking-buddy-last-drink";
 const STORAGE_FAVORITES = "drinking-buddy-favorites";
 const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
 const STORAGE_FRIENDS = "drinking-buddy-friends";
-const STORAGE_FEEDBACK_DRAFT = "drinking-buddy-feedback-draft";
 const STORAGE_TARGET_DATE = "drinking-buddy-target-date";
 const STORAGE_TARGET_TIME = "drinking-buddy-target-time";
 const MAX_FAVORITES = 6;
@@ -506,75 +505,6 @@ function updateChartInsights(state) {
   else riskEl.textContent = "Minimal";
 }
 
-function setupFeedbackTools() {
-  const input = $("feedback-input");
-  const emailLink = $("feedback-email-link");
-  const copyBtn = $("btn-copy-feedback");
-  const submitBtn = $("btn-submit-feedback");
-  const ratingEl = $("feedback-rating");
-  const contactEl = $("feedback-contact");
-  const statusEl = $("feedback-status");
-  if (!input || !emailLink) return;
-
-  input.value = getStoredText(STORAGE_FEEDBACK_DRAFT, "");
-  const updateEmailHref = () => {
-    const body = encodeURIComponent(input.value.trim());
-    emailLink.href = `mailto:noahw9599@gmail.com?subject=BAC%20Tracker%20Feedback&body=${body}`;
-  };
-  updateEmailHref();
-
-  input.addEventListener("input", () => {
-    setStoredText(STORAGE_FEEDBACK_DRAFT, input.value);
-    updateEmailHref();
-  });
-
-  copyBtn?.addEventListener("click", async () => {
-    const text = input.value.trim();
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = "Copied";
-      window.setTimeout(() => {
-        copyBtn.textContent = "Copy feedback";
-      }, 1200);
-    } catch (_) {}
-  });
-
-  submitBtn?.addEventListener("click", async () => {
-    const message = input.value.trim();
-    if (!message) {
-      if (statusEl) statusEl.textContent = "Add feedback text before sending.";
-      return;
-    }
-    if (statusEl) statusEl.textContent = "Sending...";
-    submitBtn.disabled = true;
-    try {
-      await fetchJSON(API.feedback, {
-        method: "POST",
-        body: JSON.stringify({
-          message,
-          rating: ratingEl?.value || null,
-          contact: contactEl?.value?.trim() || null,
-          context: {
-            ua: navigator.userAgent,
-            url: window.location.pathname,
-          },
-        }),
-      });
-      if (statusEl) statusEl.textContent = "Thanks, feedback sent.";
-      input.value = "";
-      if (ratingEl) ratingEl.value = "";
-      if (contactEl) contactEl.value = "";
-      setStoredText(STORAGE_FEEDBACK_DRAFT, "");
-      updateEmailHref();
-    } catch (err) {
-      if (statusEl) statusEl.textContent = `Could not send: ${err.message}`;
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-}
-
 function setupShareButton() {
   const btn = $("btn-share-app");
   if (!btn) return;
@@ -959,7 +889,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadFriends();
   renderFriends();
   setupShareButton();
-  setupFeedbackTools();
   await refreshAuth();
 
   $("btn-login")?.addEventListener("click", async () => {
