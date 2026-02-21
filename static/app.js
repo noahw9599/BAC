@@ -35,6 +35,7 @@ let serverFavorites = [];
 let savedSessionsCache = [];
 let savedSessionDates = [];
 let authMode = "login";
+let activeTab = "current";
 
 function $(id) {
   return document.getElementById(id);
@@ -58,6 +59,24 @@ function setAuthStatus(text) {
 function setSessionStatus(text) {
   const el = $("session-status");
   if (el) el.textContent = text || "";
+}
+
+function switchTab(tabName) {
+  const next = ["current", "history", "account"].includes(tabName) ? tabName : "current";
+  activeTab = next;
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `tab-${next}`);
+  });
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === next);
+  });
+}
+
+function initTabs() {
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+  switchTab("current");
 }
 
 function todayYMD() {
@@ -91,6 +110,7 @@ function setAuthUI(authenticated, user = null) {
     if (list) list.innerHTML = "";
     const dateList = $("session-date-list");
     if (dateList) dateList.innerHTML = "";
+    switchTab("account");
     return;
   }
 
@@ -661,6 +681,7 @@ async function loadSavedSessionById(sessionId) {
     });
     setSessionStatus("Session loaded.");
     await refreshState();
+    switchTab("current");
   } catch (err) {
     setSessionStatus(`Load failed: ${err.message}`);
   }
@@ -920,6 +941,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   await loadCatalog();
+  initTabs();
   initializeTargetInputs();
   loadFriends();
   renderFriends();
