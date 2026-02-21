@@ -99,6 +99,9 @@ function setAuthUI(authenticated, user = null) {
   if (user?.default_weight_lb && $("weight")) {
     $("weight").value = Math.round(user.default_weight_lb);
   }
+  if ($("sex") && typeof user?.is_male === "boolean") {
+    $("sex").value = user.is_male ? "male" : "female";
+  }
 }
 
 async function refreshAuth() {
@@ -161,7 +164,7 @@ function getRegisterPayload() {
     display_name: $("auth-register-name")?.value?.trim() || "",
     email: $("auth-register-email")?.value?.trim() || "",
     password: $("auth-register-password")?.value?.trim() || "",
-    height_in: $("auth-register-height")?.value || "",
+    gender: $("auth-register-gender")?.value || "",
     default_weight_lb: $("auth-register-weight")?.value || "",
   };
 }

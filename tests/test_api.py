@@ -25,7 +25,7 @@ def register(
     email="student@example.edu",
     password="password123",
     name="Student",
-    height_in=70,
+    gender="male",
     default_weight_lb=160,
 ):
     res = client.post(
@@ -34,7 +34,7 @@ def register(
             "email": email,
             "password": password,
             "display_name": name,
-            "height_in": height_in,
+            "gender": gender,
             "default_weight_lb": default_weight_lb,
         },
     )
@@ -138,7 +138,7 @@ def test_register_trims_password(client):
             "email": "trimreg@example.edu",
             "password": " password123 ",
             "display_name": "TrimReg",
-            "height_in": 69,
+            "gender": "male",
             "default_weight_lb": 165,
         },
     )
@@ -206,18 +206,18 @@ def test_favorites_persist_per_user(client):
     assert favs_again.get_json()["favorites"][0] == "vodka-soda"
 
 
-def test_register_requires_height_and_weight(client):
-    bad_height = client.post(
+def test_register_requires_gender_and_weight(client):
+    bad_gender = client.post(
         "/api/auth/register",
         json={
             "email": "bad1@example.edu",
             "password": "password123",
             "display_name": "Bad1",
-            "height_in": 20,
+            "gender": "unknown",
             "default_weight_lb": 160,
         },
     )
-    assert bad_height.status_code == 400
+    assert bad_gender.status_code == 400
 
     bad_weight = client.post(
         "/api/auth/register",
@@ -225,7 +225,7 @@ def test_register_requires_height_and_weight(client):
             "email": "bad2@example.edu",
             "password": "password123",
             "display_name": "Bad2",
-            "height_in": 70,
+            "gender": "female",
             "default_weight_lb": 40,
         },
     )
@@ -243,7 +243,7 @@ def test_sessions_are_isolated_per_client():
             "email": "a@example.edu",
             "password": "password123",
             "display_name": "A",
-            "height_in": 70,
+            "gender": "male",
             "default_weight_lb": 160,
         },
     )

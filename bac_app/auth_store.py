@@ -19,7 +19,7 @@ def init_db(db_path: str) -> None:
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 display_name TEXT NOT NULL,
-                height_in REAL,
+                is_male INTEGER,
                 default_weight_lb REAL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
@@ -27,8 +27,8 @@ def init_db(db_path: str) -> None:
         )
         # Lightweight migration for older DBs created before profile columns existed.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-        if "height_in" not in cols:
-            conn.execute("ALTER TABLE users ADD COLUMN height_in REAL")
+        if "is_male" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN is_male INTEGER")
         if "default_weight_lb" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN default_weight_lb REAL")
         conn.execute(
@@ -64,7 +64,7 @@ def create_user(
     email: str,
     password: str,
     display_name: str,
-    height_in: float,
+    is_male: bool,
     default_weight_lb: float,
 ) -> dict[str, Any] | None:
     password_hash = generate_password_hash(password)
@@ -72,10 +72,10 @@ def create_user(
         with sqlite3.connect(db_path) as conn:
             cur = conn.execute(
                 """
-                INSERT INTO users (email, password_hash, display_name, height_in, default_weight_lb)
+                INSERT INTO users (email, password_hash, display_name, is_male, default_weight_lb)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (email.lower().strip(), password_hash, display_name.strip(), float(height_in), float(default_weight_lb)),
+                (email.lower().strip(), password_hash, display_name.strip(), int(bool(is_male)), float(default_weight_lb)),
             )
             conn.commit()
             user_id = int(cur.lastrowid)
@@ -86,7 +86,7 @@ def create_user(
         "id": user_id,
         "email": email.lower().strip(),
         "display_name": display_name.strip(),
-        "height_in": float(height_in),
+        "is_male": bool(is_male),
         "default_weight_lb": float(default_weight_lb),
     }
 
@@ -95,7 +95,7 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name, height_in, default_weight_lb, password_hash FROM users WHERE email = ?",
+            "SELECT id, email, display_name, is_male, default_weight_lb, password_hash FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
 
@@ -112,7 +112,7 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
         "id": row["id"],
         "email": row["email"],
         "display_name": row["display_name"],
-        "height_in": row["height_in"],
+        "is_male": bool(row["is_male"]) if row["is_male"] is not None else True,
         "default_weight_lb": row["default_weight_lb"],
     }
 
@@ -121,7 +121,7 @@ def get_user_by_id(db_path: str, user_id: int) -> dict[str, Any] | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name, height_in, default_weight_lb FROM users WHERE id = ?",
+            "SELECT id, email, display_name, is_male, default_weight_lb FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     if row is None:
@@ -130,7 +130,7 @@ def get_user_by_id(db_path: str, user_id: int) -> dict[str, Any] | None:
         "id": row["id"],
         "email": row["email"],
         "display_name": row["display_name"],
-        "height_in": row["height_in"],
+        "is_male": bool(row["is_male"]) if row["is_male"] is not None else True,
         "default_weight_lb": row["default_weight_lb"],
     }
 
