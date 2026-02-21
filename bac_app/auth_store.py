@@ -55,6 +55,54 @@ def init_db(db_path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_social_settings (
+                user_id INTEGER PRIMARY KEY,
+                share_with_friends INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS friend_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_user_id INTEGER NOT NULL,
+                to_user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                responded_at TEXT,
+                UNIQUE(from_user_id, to_user_id),
+                FOREIGN KEY(from_user_id) REFERENCES users(id),
+                FOREIGN KEY(to_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS friendships (
+                user_id INTEGER NOT NULL,
+                friend_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, friend_user_id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(friend_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_presence (
+                user_id INTEGER PRIMARY KEY,
+                bac_now REAL NOT NULL DEFAULT 0.0,
+                drink_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -264,3 +312,198 @@ def list_favorite_drinks(db_path: str, *, user_id: int, limit: int = 6) -> list[
             (user_id, max(1, min(limit, 20))),
         ).fetchall()
     return [row["catalog_id"] for row in rows]
+
+
+def find_user_by_email(db_path: str, *, email: str) -> dict[str, Any] | None:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, email, display_name FROM users WHERE email = ?",
+            (email.strip().lower(),),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+
+
+def set_share_with_friends(db_path: str, *, user_id: int, enabled: bool) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_social_settings (user_id, share_with_friends, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+              share_with_friends=excluded.share_with_friends,
+              updated_at=datetime('now')
+            """,
+            (user_id, 1 if enabled else 0),
+        )
+        conn.commit()
+
+
+def get_share_with_friends(db_path: str, *, user_id: int) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT share_with_friends FROM user_social_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return False
+    return bool(row[0])
+
+
+def upsert_presence(db_path: str, *, user_id: int, bac_now: float, drink_count: int) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_presence (user_id, bac_now, drink_count, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+              bac_now=excluded.bac_now,
+              drink_count=excluded.drink_count,
+              updated_at=datetime('now')
+            """,
+            (user_id, float(bac_now), int(drink_count)),
+        )
+        conn.commit()
+
+
+def list_friends(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT u.id, u.display_name, u.email
+            FROM friendships f
+            JOIN users u ON u.id = f.friend_user_id
+            WHERE f.user_id = ?
+            ORDER BY u.display_name COLLATE NOCASE ASC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [{"id": r["id"], "display_name": r["display_name"], "email": r["email"]} for r in rows]
+
+
+def are_friends(db_path: str, *, user_a: int, user_b: int) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM friendships WHERE user_id = ? AND friend_user_id = ?",
+            (user_a, user_b),
+        ).fetchone()
+    return row is not None
+
+
+def send_friend_request(db_path: str, *, from_user_id: int, to_user_id: int) -> tuple[bool, str]:
+    if from_user_id == to_user_id:
+        return False, "You cannot friend yourself."
+    if are_friends(db_path, user_a=from_user_id, user_b=to_user_id):
+        return False, "Already friends."
+    with sqlite3.connect(db_path) as conn:
+        pending = conn.execute(
+            """
+            SELECT id FROM friend_requests
+            WHERE ((from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?))
+              AND status = 'pending'
+            """,
+            (from_user_id, to_user_id, to_user_id, from_user_id),
+        ).fetchone()
+        if pending is not None:
+            return False, "A pending request already exists."
+        conn.execute(
+            "INSERT INTO friend_requests (from_user_id, to_user_id, status) VALUES (?, ?, 'pending')",
+            (from_user_id, to_user_id),
+        )
+        conn.commit()
+    return True, "Request sent."
+
+
+def list_incoming_friend_requests(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT fr.id, fr.created_at, u.id as from_user_id, u.display_name, u.email
+            FROM friend_requests fr
+            JOIN users u ON u.id = fr.from_user_id
+            WHERE fr.to_user_id = ? AND fr.status = 'pending'
+            ORDER BY fr.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "request_id": r["id"],
+            "created_at": r["created_at"],
+            "from_user_id": r["from_user_id"],
+            "display_name": r["display_name"],
+            "email": r["email"],
+        }
+        for r in rows
+    ]
+
+
+def respond_friend_request(db_path: str, *, user_id: int, request_id: int, accept: bool) -> tuple[bool, str]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        req = conn.execute(
+            "SELECT id, from_user_id, to_user_id, status FROM friend_requests WHERE id = ?",
+            (request_id,),
+        ).fetchone()
+        if req is None or req["to_user_id"] != user_id:
+            return False, "Request not found."
+        if req["status"] != "pending":
+            return False, "Request already handled."
+
+        if accept:
+            conn.execute(
+                "UPDATE friend_requests SET status = 'accepted', responded_at = datetime('now') WHERE id = ?",
+                (request_id,),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)",
+                (req["from_user_id"], req["to_user_id"]),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)",
+                (req["to_user_id"], req["from_user_id"]),
+            )
+            conn.commit()
+            return True, "Friend request accepted."
+
+        conn.execute(
+            "UPDATE friend_requests SET status = 'rejected', responded_at = datetime('now') WHERE id = ?",
+            (request_id,),
+        )
+        conn.commit()
+        return True, "Friend request rejected."
+
+
+def list_friend_feed(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT u.id, u.display_name, u.email, p.bac_now, p.drink_count, p.updated_at
+            FROM friendships f
+            JOIN users u ON u.id = f.friend_user_id
+            LEFT JOIN user_social_settings s ON s.user_id = u.id
+            LEFT JOIN user_presence p ON p.user_id = u.id
+            WHERE f.user_id = ?
+              AND COALESCE(s.share_with_friends, 0) = 1
+            ORDER BY p.updated_at DESC, u.display_name COLLATE NOCASE ASC
+            """,
+            (user_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "user_id": r["id"],
+                "display_name": r["display_name"],
+                "email": r["email"],
+                "bac_now": float(r["bac_now"]) if r["bac_now"] is not None else None,
+                "drink_count": int(r["drink_count"]) if r["drink_count"] is not None else None,
+                "updated_at": r["updated_at"],
+            }
+        )
+    return out

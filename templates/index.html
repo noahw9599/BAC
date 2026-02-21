@@ -23,6 +23,7 @@
     <nav class="app-tabs" aria-label="Main tabs">
       <button type="button" class="tab-btn active" data-tab="current">Current</button>
       <button type="button" class="tab-btn" data-tab="history">History</button>
+      <button type="button" class="tab-btn" data-tab="social">Social</button>
       <button type="button" class="tab-btn" data-tab="account">Account</button>
     </nav>
 
@@ -135,18 +136,6 @@
           </div>
         </div>
 
-        <div class="friend-group card-lite">
-          <h3>Friend group</h3>
-          <p class="mini-help">Track your group all night and see who may need to slow down.</p>
-          <div class="friend-add">
-            <label class="sr-only" for="friend-name">Friend name</label>
-            <input type="text" id="friend-name" maxlength="24" placeholder="Add friend name">
-            <button type="button" class="btn btn-primary" id="btn-add-friend">Add</button>
-          </div>
-          <p class="group-summary" id="group-summary">No friends added yet.</p>
-          <div id="friend-list" class="friend-list"></div>
-        </div>
-
         <button type="button" class="btn btn-secondary btn-block" id="btn-reset">Clear all drinks</button>
         <button type="button" class="btn btn-primary btn-block" id="btn-share-app">Share app with friends</button>
       </section>
@@ -169,6 +158,42 @@
         </div>
         <p class="group-summary" id="session-status"></p>
         <div id="saved-session-list" class="friend-list"></div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-social">
+      <section class="card">
+        <h2>Social</h2>
+        <p class="mini-help">Only approved friends can see your data, and only if you enable sharing.</p>
+        <div class="feedback-actions">
+          <button type="button" class="btn btn-secondary" id="btn-social-share-toggle">Enable sharing</button>
+        </div>
+        <p class="group-summary" id="social-share-status">Sharing is off.</p>
+
+        <div class="card-lite">
+          <h3>Add friend</h3>
+          <div class="friend-add">
+            <label class="sr-only" for="social-friend-email">Friend email</label>
+            <input type="email" id="social-friend-email" placeholder="friend@example.com">
+            <button type="button" class="btn btn-primary" id="btn-social-add-friend">Send request</button>
+          </div>
+          <p class="group-summary" id="social-request-status"></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Incoming requests</h3>
+          <div id="social-requests-list" class="friend-list"></div>
+        </div>
+
+        <div class="card-lite">
+          <h3>Friends</h3>
+          <div id="social-friends-list" class="friend-list"></div>
+        </div>
+
+        <div class="card-lite">
+          <h3>Live friend feed</h3>
+          <div id="social-feed-list" class="friend-list"></div>
+        </div>
       </section>
     </section>
 

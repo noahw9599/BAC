@@ -294,3 +294,36 @@ def test_drive_advice_do_not_drive_when_high_bac(client):
 
     state = client.get("/api/state").get_json()
     assert state["drive_advice"]["status"] == "do_not_drive"
+
+
+def test_social_friend_request_and_feed_flow():
+    app.config["TESTING"] = True
+    a = app.test_client()
+    b = app.test_client()
+
+    register(a, email="alice@example.edu", name="Alice")
+    register(b, email="bob@example.edu", name="Bob")
+
+    req = a.post("/api/social/request", json={"email": "bob@example.edu"})
+    assert req.status_code == 200
+
+    status_b = b.get("/api/social/status")
+    assert status_b.status_code == 200
+    incoming = status_b.get_json()["incoming_requests"]
+    assert len(incoming) == 1
+    request_id = incoming[0]["request_id"]
+
+    accept = b.post("/api/social/request/respond", json={"request_id": request_id, "action": "accept"})
+    assert accept.status_code == 200
+
+    # Bob opts in to sharing and logs a session state.
+    b.post("/api/social/share", json={"enabled": True})
+    b.post("/api/setup", json={"weight_lb": 170, "is_male": True})
+    b.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+    b.get("/api/state")
+
+    feed = a.get("/api/social/feed")
+    assert feed.status_code == 200
+    items = feed.get_json()["items"]
+    assert len(items) >= 1
+    assert items[0]["display_name"] == "Bob"

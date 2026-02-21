@@ -104,7 +104,7 @@ header h1 {
   bottom: 0;
   z-index: 40;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.35rem;
   padding: 0.55rem 0.7rem calc(0.55rem + env(safe-area-inset-bottom, 0));
   background: rgba(15, 23, 42, 0.95);

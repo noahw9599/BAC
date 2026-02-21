@@ -13,16 +13,26 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request, session as flask_session
 
 from bac_app.auth_store import (
+    are_friends,
     authenticate_user,
     create_user,
+    find_user_by_email,
     get_user_by_id,
     get_user_session_payload,
     init_db as init_auth_db,
+    list_friend_feed,
+    list_friends,
     list_favorite_drinks,
+    list_incoming_friend_requests,
     list_session_dates,
     list_user_sessions,
+    respond_friend_request,
     save_user_session,
+    send_friend_request,
+    set_share_with_friends,
     track_favorite_drink,
+    upsert_presence,
+    get_share_with_friends,
 )
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drive import get_drive_advice
@@ -178,6 +188,15 @@ def _is_valid_date_yyyy_mm_dd(value: str) -> bool:
         return False
 
 
+def _social_payload(user_id: int) -> dict[str, Any]:
+    _ensure_auth_db()
+    return {
+        "share_with_friends": get_share_with_friends(_auth_db_path(), user_id=user_id),
+        "friends": list_friends(_auth_db_path(), user_id=user_id),
+        "incoming_requests": list_incoming_friend_requests(_auth_db_path(), user_id=user_id),
+    }
+
+
 @app.route("/")
 def index():
     _ensure_feedback_db()
@@ -262,6 +281,75 @@ def api_auth_logout():
     return jsonify({"ok": True})
 
 
+@app.route("/api/social/status")
+def api_social_status():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    return jsonify(_social_payload(user_id))
+
+
+@app.route("/api/social/share", methods=["POST"])
+def api_social_share():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    enabled = bool(data.get("enabled", False))
+    _ensure_auth_db()
+    set_share_with_friends(_auth_db_path(), user_id=user_id, enabled=enabled)
+    return jsonify({"ok": True, "share_with_friends": enabled})
+
+
+@app.route("/api/social/request", methods=["POST"])
+def api_social_request():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    email = str(data.get("email", "")).strip().lower()
+    if "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+    _ensure_auth_db()
+    target = find_user_by_email(_auth_db_path(), email=email)
+    if target is None:
+        return jsonify({"error": "User not found"}), 404
+    ok, msg = send_friend_request(_auth_db_path(), from_user_id=user_id, to_user_id=target["id"])
+    if not ok:
+        return jsonify({"error": msg}), 400
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/social/request/respond", methods=["POST"])
+def api_social_request_respond():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    try:
+        request_id = int(data.get("request_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid request_id is required"}), 400
+    action = str(data.get("action", "")).strip().lower()
+    if action not in {"accept", "reject"}:
+        return jsonify({"error": "Action must be accept or reject"}), 400
+    _ensure_auth_db()
+    ok, msg = respond_friend_request(_auth_db_path(), user_id=user_id, request_id=request_id, accept=(action == "accept"))
+    if not ok:
+        return jsonify({"error": msg}), 400
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/social/feed")
+def api_social_feed():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    items = list_friend_feed(_auth_db_path(), user_id=user_id)
+    return jsonify({"items": items})
+
+
 @app.route("/api/drink-types")
 def api_drink_types():
     return jsonify({"drink_types": list_drink_types()})
@@ -323,13 +411,16 @@ def api_drink():
 
 @app.route("/api/state")
 def api_state():
-    if _require_user_id() is None:
+    user_id = _require_user_id()
+    if user_id is None:
         return jsonify({"authenticated": False, **_empty_state()})
 
     model = get_session()
     hours_until_target = request.args.get("hours_until_target", type=float)
 
     if model is None:
+        _ensure_auth_db()
+        upsert_presence(_auth_db_path(), user_id=user_id, bac_now=0.0, drink_count=0)
         return jsonify({"authenticated": True, **_empty_state()})
 
     events = model.events
@@ -347,12 +438,16 @@ def api_state():
             hours_until_target,
         )
 
+    bac_now = round(model.bac_now(0.0), 4)
+    _ensure_auth_db()
+    upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=len(events))
+
     return jsonify({
         "authenticated": True,
         "configured": True,
         "weight_lb": model.weight_lb,
         "is_male": model.is_male,
-        "bac_now": round(model.bac_now(0.0), 4),
+        "bac_now": bac_now,
         "curve": [{"t": t, "bac": bac} for t, bac in curve],
         "hours_until_sober_from_now": model.hours_until_sober_from_now(),
         "drink_count": len(events),
@@ -360,7 +455,7 @@ def api_state():
         "total_carbs_g": round(model.total_carbs_g, 1),
         "total_sugar_g": round(model.total_sugar_g, 1),
         "hangover_plan": hangover_plan,
-        "drive_advice": get_drive_advice(model.bac_now(0.0), model.hours_until_sober_from_now()),
+        "drive_advice": get_drive_advice(bac_now, model.hours_until_sober_from_now()),
     })
 
 

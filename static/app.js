@@ -14,6 +14,11 @@ const API = {
   sessionLoad: "/api/session/load",
   favorites: "/api/favorites",
   sessionDates: "/api/session/dates",
+  socialStatus: "/api/social/status",
+  socialShare: "/api/social/share",
+  socialRequest: "/api/social/request",
+  socialRespond: "/api/social/request/respond",
+  socialFeed: "/api/social/feed",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -36,6 +41,7 @@ let savedSessionsCache = [];
 let savedSessionDates = [];
 let authMode = "login";
 let activeTab = "current";
+let socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
 
 function $(id) {
   return document.getElementById(id);
@@ -62,7 +68,7 @@ function setSessionStatus(text) {
 }
 
 function switchTab(tabName) {
-  const next = ["current", "history", "account"].includes(tabName) ? tabName : "current";
+  const next = ["current", "history", "social", "account"].includes(tabName) ? tabName : "current";
   activeTab = next;
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === `tab-${next}`);
@@ -110,6 +116,9 @@ function setAuthUI(authenticated, user = null) {
     if (list) list.innerHTML = "";
     const dateList = $("session-date-list");
     if (dateList) dateList.innerHTML = "";
+    renderSocialFeed([]);
+    socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
+    renderSocialStatus();
     switchTab("account");
     return;
   }
@@ -133,6 +142,7 @@ async function refreshAuth() {
     if (currentUser) {
       await loadServerFavorites();
       await loadSavedSessions();
+      await loadSocial();
       await refreshState();
     }
   } catch (_) {
@@ -140,6 +150,122 @@ async function refreshAuth() {
     serverFavorites = [];
     setAuthUI(false);
   }
+}
+
+function renderSocialStatus() {
+  const shareStatus = $("social-share-status");
+  const shareBtn = $("btn-social-share-toggle");
+  const friendsList = $("social-friends-list");
+  const reqList = $("social-requests-list");
+  if (shareStatus) shareStatus.textContent = socialState.share_with_friends ? "Sharing is ON for accepted friends." : "Sharing is OFF.";
+  if (shareBtn) shareBtn.textContent = socialState.share_with_friends ? "Disable sharing" : "Enable sharing";
+
+  if (friendsList) {
+    friendsList.innerHTML = "";
+    if (!socialState.friends?.length) {
+      friendsList.innerHTML = `<div class="friend-row"><div class="friend-counts">No friends yet.</div></div>`;
+    } else {
+      socialState.friends.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "friend-row";
+        row.innerHTML = `<div class="friend-main">${f.display_name}</div><div class="friend-counts">${f.email}</div>`;
+        friendsList.appendChild(row);
+      });
+    }
+  }
+
+  if (reqList) {
+    reqList.innerHTML = "";
+    if (!socialState.incoming_requests?.length) {
+      reqList.innerHTML = `<div class="friend-row"><div class="friend-counts">No incoming requests.</div></div>`;
+    } else {
+      socialState.incoming_requests.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "friend-row";
+        row.innerHTML = `
+          <div class="friend-main">${r.display_name}</div>
+          <div class="friend-counts">${r.email}</div>
+          <div class="friend-actions">
+            <button type="button" class="chip social-respond" data-request-id="${r.request_id}" data-action="accept">Accept</button>
+            <button type="button" class="chip social-respond danger" data-request-id="${r.request_id}" data-action="reject">Reject</button>
+          </div>
+        `;
+        reqList.appendChild(row);
+      });
+    }
+  }
+}
+
+function renderSocialFeed(items) {
+  const list = $("social-feed-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!items || !items.length) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No friend data shared yet.</div></div>`;
+    return;
+  }
+  items.forEach((f) => {
+    const bac = f.bac_now == null ? "-" : Number(f.bac_now).toFixed(3);
+    const drinks = f.drink_count == null ? "-" : f.drink_count;
+    const updated = f.updated_at || "n/a";
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${f.display_name}</div>
+      <div class="friend-counts">BAC ${bac} | Drinks ${drinks} | Updated ${updated}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function loadSocial() {
+  if (!currentUser) return;
+  try {
+    socialState = await fetchJSON(API.socialStatus);
+    renderSocialStatus();
+    const feed = await fetchJSON(API.socialFeed);
+    renderSocialFeed(feed.items || []);
+  } catch (_) {
+    socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
+    renderSocialStatus();
+    renderSocialFeed([]);
+  }
+}
+
+async function toggleSocialShare() {
+  if (!currentUser) return;
+  const next = !socialState.share_with_friends;
+  if (next) {
+    const ok = window.confirm("Share your BAC/drink summary with accepted friends only?");
+    if (!ok) return;
+  }
+  await fetchJSON(API.socialShare, { method: "POST", body: JSON.stringify({ enabled: next }) });
+  await loadSocial();
+}
+
+async function sendSocialFriendRequest() {
+  const email = $("social-friend-email")?.value?.trim() || "";
+  const status = $("social-request-status");
+  if (!email) {
+    if (status) status.textContent = "Enter an email first.";
+    return;
+  }
+  try {
+    await fetchJSON(API.socialRequest, { method: "POST", body: JSON.stringify({ email }) });
+    if ($("social-friend-email")) $("social-friend-email").value = "";
+    if (status) status.textContent = "Request sent.";
+    await loadSocial();
+  } catch (err) {
+    if (status) status.textContent = err.message;
+  }
+}
+
+async function respondSocialRequest(requestId, action) {
+  await fetchJSON(API.socialRespond, {
+    method: "POST",
+    body: JSON.stringify({ request_id: requestId, action }),
+  });
+  await loadSocial();
 }
 
 async function loadServerFavorites() {
@@ -1039,5 +1165,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!input) return;
     input.value = target.dataset.date || "";
     renderSavedSessions(savedSessionsCache);
+  });
+
+  $("btn-social-share-toggle")?.addEventListener("click", async () => {
+    try {
+      await toggleSocialShare();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-add-friend")?.addEventListener("click", async () => {
+    await sendSocialFriendRequest();
+  });
+  $("social-requests-list")?.addEventListener("click", async (e) => {
+    const target = e.target.closest(".social-respond");
+    if (!target) return;
+    try {
+      await respondSocialRequest(target.dataset.requestId, target.dataset.action);
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
   });
 });
