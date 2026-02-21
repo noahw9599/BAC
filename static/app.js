@@ -129,7 +129,7 @@ async function loadServerFavorites() {
 function getAuthPayload() {
   return {
     email: $("auth-email")?.value?.trim() || "",
-    password: $("auth-password")?.value || "",
+    password: $("auth-password")?.value?.trim() || "",
     display_name: $("auth-display-name")?.value?.trim() || "",
   };
 }
@@ -912,6 +912,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       await authLogout();
     } catch (err) {
       setAuthStatus(`Logout failed: ${err.message}`);
+    }
+  });
+
+  $("auth-password")?.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    try {
+      await authLogin();
+    } catch (err) {
+      setAuthStatus(`Login failed: ${err.message}`);
     }
   });
 

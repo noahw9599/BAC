@@ -118,6 +118,17 @@ def test_login_allows_trimmed_password_input(client):
     assert login.status_code == 200
 
 
+def test_register_trims_password(client):
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": "trimreg@example.edu", "password": " password123 ", "display_name": "TrimReg"},
+    )
+    assert reg.status_code == 200
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"email": "trimreg@example.edu", "password": "password123"})
+    assert login.status_code == 200
+
+
 def test_saved_sessions_roundtrip(client):
     register(client)
     client.post("/api/setup", json={"weight_lb": 160, "is_male": True})

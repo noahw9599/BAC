@@ -6,6 +6,7 @@ Run from project root:
 
 import os
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ app.config["SECRET_KEY"] = os.environ.get("APP_SECRET_KEY", "dev-only-change-me"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "0") == "1"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 MIN_WEIGHT_LB = 80.0
 MAX_WEIGHT_LB = 400.0
@@ -201,7 +203,7 @@ def api_auth_register():
     _ensure_auth_db()
     data = request.get_json() or {}
     email = str(data.get("email", "")).strip().lower()
-    password = str(data.get("password", ""))
+    password = str(data.get("password", "")).strip()
     display_name = str(data.get("display_name", "")).strip() or email.split("@")[0]
 
     if "@" not in email or len(email) < 5:
@@ -215,6 +217,7 @@ def api_auth_register():
     if user is None:
         return jsonify({"error": "Email already registered"}), 409
 
+    flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
     return jsonify({"ok": True, "user": user})
 
@@ -224,16 +227,13 @@ def api_auth_login():
     _ensure_auth_db()
     data = request.get_json() or {}
     email = str(data.get("email", "")).strip().lower()
-    password = str(data.get("password", ""))
+    password = str(data.get("password", "")).strip()
 
     user = authenticate_user(_auth_db_path(), email=email, password=password)
     if user is None:
-        trimmed_password = password.strip()
-        if trimmed_password != password:
-            user = authenticate_user(_auth_db_path(), email=email, password=trimmed_password)
-    if user is None:
         return jsonify({"error": "Invalid credentials"}), 401
 
+    flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
     return jsonify({"ok": True, "user": user})
 
