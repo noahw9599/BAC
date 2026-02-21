@@ -111,6 +111,13 @@ def test_auth_login_logout(client):
     assert login.status_code == 200
 
 
+def test_login_allows_trimmed_password_input(client):
+    register(client, email="trim@example.edu", password="password123")
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"email": "trim@example.edu", "password": " password123 "})
+    assert login.status_code == 200
+
+
 def test_saved_sessions_roundtrip(client):
     register(client)
     client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
@@ -135,6 +142,28 @@ def test_saved_sessions_roundtrip(client):
 
     reloaded = client.get("/api/state").get_json()
     assert reloaded["drink_count"] == 1
+
+
+def test_favorites_persist_per_user(client):
+    register(client, email="fav@example.edu", password="password123")
+    client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    client.post("/api/drink", json={"catalog_id": "bud-light", "count": 1, "hours_ago": 0})
+    client.post("/api/drink", json={"catalog_id": "truly", "count": 1, "hours_ago": 0})
+    client.post("/api/drink", json={"catalog_id": "vodka-soda", "count": 1, "hours_ago": 0})
+
+    favs = client.get("/api/favorites")
+    assert favs.status_code == 200
+    ids = favs.get_json()["favorites"]
+    assert ids[0] == "vodka-soda"
+    assert "bud-light" in ids
+
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"email": "fav@example.edu", "password": "password123"})
+    assert login.status_code == 200
+
+    favs_again = client.get("/api/favorites")
+    assert favs_again.status_code == 200
+    assert favs_again.get_json()["favorites"][0] == "vodka-soda"
 
 
 def test_sessions_are_isolated_per_client():

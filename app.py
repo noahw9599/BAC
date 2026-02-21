@@ -16,8 +16,10 @@ from bac_app.auth_store import (
     get_user_by_id,
     get_user_session_payload,
     init_db as init_auth_db,
+    list_favorite_drinks,
     list_user_sessions,
     save_user_session,
+    track_favorite_drink,
 )
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drive import get_drive_advice
@@ -216,6 +218,10 @@ def api_auth_login():
 
     user = authenticate_user(_auth_db_path(), email=email, password=password)
     if user is None:
+        trimmed_password = password.strip()
+        if trimmed_password != password:
+            user = authenticate_user(_auth_db_path(), email=email, password=trimmed_password)
+    if user is None:
         return jsonify({"error": "Invalid credentials"}), 401
 
     flask_session[AUTH_USER_KEY] = user["id"]
@@ -239,6 +245,15 @@ def api_catalog():
     by_cat = list_by_category()
     flat = list_all_flat()
     return jsonify({"by_category": by_cat, "flat": flat})
+
+
+@app.route("/api/favorites")
+def api_favorites():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    return jsonify({"favorites": list_favorite_drinks(_auth_db_path(), user_id=user_id, limit=6)})
 
 
 @app.route("/api/setup", methods=["POST"])
@@ -267,7 +282,10 @@ def api_drink():
     hours_ago = _clamp_float(data.get("hours_ago"), 0.0, 0.0, MAX_HOURS_AGO)
 
     if data.get("catalog_id"):
-        model.add_drink_catalog(hours_ago, data["catalog_id"], count)
+        catalog_id = data["catalog_id"]
+        model.add_drink_catalog(hours_ago, catalog_id, count)
+        _ensure_auth_db()
+        track_favorite_drink(_auth_db_path(), user_id=_require_user_id(), catalog_id=catalog_id)
     else:
         drink_key = data.get("drink_key", "beer")
         model.add_drink_ago(hours_ago, drink_key, count)

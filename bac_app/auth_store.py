@@ -11,6 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 def init_db(db_path: str) -> None:
     with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -35,6 +36,17 @@ def init_db(db_path: str) -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_sessions_user_id ON saved_sessions(user_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                user_id INTEGER NOT NULL,
+                catalog_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, catalog_id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -64,7 +76,11 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
 
     if row is None:
         return None
-    if not check_password_hash(row["password_hash"], password):
+    try:
+        ok = check_password_hash(row["password_hash"], password)
+    except ValueError:
+        return None
+    if not ok:
         return None
 
     return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
@@ -101,7 +117,7 @@ def list_user_sessions(db_path: str, *, user_id: int, limit: int = 50) -> list[d
             SELECT id, name, created_at, payload_json
             FROM saved_sessions
             WHERE user_id = ?
-            ORDER BY id DESC
+            ORDER BY rowid DESC
             LIMIT ?
             """,
             (user_id, max(1, min(limit, 200))),
@@ -144,3 +160,34 @@ def get_user_session_payload(db_path: str, *, user_id: int, session_id: int) -> 
     except json.JSONDecodeError:
         return None
 
+
+def track_favorite_drink(db_path: str, *, user_id: int, catalog_id: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM user_favorites WHERE user_id = ? AND catalog_id = ?",
+            (user_id, catalog_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO user_favorites (user_id, catalog_id, updated_at)
+            VALUES (?, ?, datetime('now'))
+            """,
+            (user_id, catalog_id),
+        )
+        conn.commit()
+
+
+def list_favorite_drinks(db_path: str, *, user_id: int, limit: int = 6) -> list[str]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT catalog_id
+            FROM user_favorites
+            WHERE user_id = ?
+            ORDER BY rowid DESC
+            LIMIT ?
+            """,
+            (user_id, max(1, min(limit, 20))),
+        ).fetchall()
+    return [row["catalog_id"] for row in rows]

@@ -12,6 +12,7 @@ const API = {
   sessionSave: "/api/session/save",
   sessionList: "/api/session/list",
   sessionLoad: "/api/session/load",
+  favorites: "/api/favorites",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -28,6 +29,7 @@ let catalogFlat = [];
 let catalogById = {};
 let friends = [];
 let currentUser = null;
+let serverFavorites = [];
 
 function $(id) {
   return document.getElementById(id);
@@ -65,6 +67,8 @@ function setAuthUI(authenticated, user = null) {
   if (registerBtn) registerBtn.style.display = authenticated ? "none" : "block";
 
   if (!authenticated) {
+    serverFavorites = [];
+    refreshQuickAdd();
     if (setup) setup.style.display = "none";
     if (tracking) tracking.style.display = "none";
     setAuthStatus("Sign in to save and reload past sessions.");
@@ -81,14 +85,28 @@ async function refreshAuth() {
   try {
     const data = await fetchJSON(API.authMe);
     currentUser = data.authenticated ? data.user : null;
+    serverFavorites = [];
     setAuthUI(Boolean(currentUser), currentUser);
     if (currentUser) {
+      await loadServerFavorites();
       await loadSavedSessions();
       await refreshState();
     }
   } catch (_) {
     currentUser = null;
+    serverFavorites = [];
     setAuthUI(false);
+  }
+}
+
+async function loadServerFavorites() {
+  if (!currentUser) return;
+  try {
+    const data = await fetchJSON(API.favorites);
+    serverFavorites = Array.isArray(data.favorites) ? data.favorites.slice(0, MAX_FAVORITES) : [];
+    refreshQuickAdd();
+  } catch (_) {
+    serverFavorites = [];
   }
 }
 
@@ -149,6 +167,9 @@ function addDrinkUsed(catalogId) {
   try {
     localStorage.setItem(STORAGE_FAVORITES, JSON.stringify(next));
   } catch (_) {}
+  if (currentUser) {
+    loadServerFavorites().catch(() => {});
+  }
   refreshQuickAdd();
 }
 
@@ -548,6 +569,11 @@ async function loadSavedSessionById(sessionId) {
 }
 
 function getQuickAddIds() {
+  if (serverFavorites.length) {
+    const used = new Set(serverFavorites);
+    const defaults = QUICK_ADD_IDS.filter((id) => !used.has(id));
+    return [...serverFavorites, ...defaults].slice(0, MAX_FAVORITES);
+  }
   const fav = getFavorites();
   const used = new Set(fav);
   const defaults = QUICK_ADD_IDS.filter((id) => !used.has(id));
