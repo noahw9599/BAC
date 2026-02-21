@@ -20,7 +20,31 @@
       <p class="tagline">Track BAC, nutrition, and recovery timing. Educational use only. Never drive after drinking.</p>
     </header>
 
-    <section class="setup card" id="setup-section">
+    <section class="auth card" id="auth-section">
+      <h2>Account</h2>
+      <p class="mini-help" id="auth-status">Sign in to save and reload past sessions.</p>
+      <div class="row">
+        <label>
+          Email
+          <input type="email" id="auth-email" autocomplete="email" placeholder="you@school.edu">
+        </label>
+        <label>
+          Password
+          <input type="password" id="auth-password" autocomplete="current-password" placeholder="At least 8 chars">
+        </label>
+      </div>
+      <label>
+        Display name (for register)
+        <input type="text" id="auth-display-name" maxlength="40" placeholder="Optional">
+      </label>
+      <div class="feedback-actions">
+        <button type="button" class="btn btn-primary" id="btn-login">Log in</button>
+        <button type="button" class="btn btn-secondary" id="btn-register">Create account</button>
+        <button type="button" class="btn btn-secondary" id="btn-logout" style="display:none;">Log out</button>
+      </div>
+    </section>
+
+    <section class="setup card" id="setup-section" style="display: none;">
       <h2>Quick setup (one time)</h2>
       <div class="row">
         <label>
@@ -136,6 +160,17 @@
         </div>
         <p class="group-summary" id="group-summary">No friends added yet.</p>
         <div id="friend-list" class="friend-list"></div>
+      </div>
+
+      <div class="saved-sessions card-lite">
+        <h3>Saved sessions</h3>
+        <div class="friend-add">
+          <label class="sr-only" for="session-name">Session name</label>
+          <input type="text" id="session-name" maxlength="80" placeholder="Name this session">
+          <button type="button" class="btn btn-primary" id="btn-save-session">Save</button>
+        </div>
+        <p class="group-summary" id="session-status"></p>
+        <div id="saved-session-list" class="friend-list"></div>
       </div>
 
       <div class="chart-wrap">

@@ -5,6 +5,13 @@ const API = {
   state: "/api/state",
   reset: "/api/reset",
   feedback: "/api/feedback",
+  authMe: "/api/auth/me",
+  authRegister: "/api/auth/register",
+  authLogin: "/api/auth/login",
+  authLogout: "/api/auth/logout",
+  sessionSave: "/api/session/save",
+  sessionList: "/api/session/list",
+  sessionLoad: "/api/session/load",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -20,6 +27,7 @@ let bacChart = null;
 let catalogFlat = [];
 let catalogById = {};
 let friends = [];
+let currentUser = null;
 
 function $(id) {
   return document.getElementById(id);
@@ -33,6 +41,81 @@ async function fetchJSON(url, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+function setAuthStatus(text) {
+  const el = $("auth-status");
+  if (el) el.textContent = text;
+}
+
+function setSessionStatus(text) {
+  const el = $("session-status");
+  if (el) el.textContent = text || "";
+}
+
+function setAuthUI(authenticated, user = null) {
+  const setup = $("setup-section");
+  const tracking = $("tracking-section");
+  const logoutBtn = $("btn-logout");
+  const loginBtn = $("btn-login");
+  const registerBtn = $("btn-register");
+
+  if (logoutBtn) logoutBtn.style.display = authenticated ? "block" : "none";
+  if (loginBtn) loginBtn.style.display = authenticated ? "none" : "block";
+  if (registerBtn) registerBtn.style.display = authenticated ? "none" : "block";
+
+  if (!authenticated) {
+    if (setup) setup.style.display = "none";
+    if (tracking) tracking.style.display = "none";
+    setAuthStatus("Sign in to save and reload past sessions.");
+    const list = $("saved-session-list");
+    if (list) list.innerHTML = "";
+    return;
+  }
+
+  const label = user?.display_name || user?.email || "user";
+  setAuthStatus(`Signed in as ${label}`);
+}
+
+async function refreshAuth() {
+  try {
+    const data = await fetchJSON(API.authMe);
+    currentUser = data.authenticated ? data.user : null;
+    setAuthUI(Boolean(currentUser), currentUser);
+    if (currentUser) {
+      await loadSavedSessions();
+      await refreshState();
+    }
+  } catch (_) {
+    currentUser = null;
+    setAuthUI(false);
+  }
+}
+
+function getAuthPayload() {
+  return {
+    email: $("auth-email")?.value?.trim() || "",
+    password: $("auth-password")?.value || "",
+    display_name: $("auth-display-name")?.value?.trim() || "",
+  };
+}
+
+async function authRegister() {
+  const payload = getAuthPayload();
+  await fetchJSON(API.authRegister, { method: "POST", body: JSON.stringify(payload) });
+  await refreshAuth();
+}
+
+async function authLogin() {
+  const payload = getAuthPayload();
+  await fetchJSON(API.authLogin, { method: "POST", body: JSON.stringify(payload) });
+  await refreshAuth();
+}
+
+async function authLogout() {
+  await fetchJSON(API.authLogout, { method: "POST" });
+  currentUser = null;
+  setAuthUI(false);
 }
 
 function saveLastDrink(id) {
@@ -342,6 +425,70 @@ function setupShareButton() {
   });
 }
 
+function renderSavedSessions(items) {
+  const list = $("saved-session-list");
+  if (!list) return;
+  if (!items || !items.length) {
+    list.innerHTML = "";
+    setSessionStatus("No saved sessions yet.");
+    return;
+  }
+
+  setSessionStatus(`Saved sessions: ${items.length}`);
+  list.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${item.name}</div>
+      <div class="friend-counts">${item.created_at} | Drinks ${item.drink_count}</div>
+      <div class="friend-actions">
+        <button type="button" class="chip saved-load" data-session-id="${item.id}">Load</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function loadSavedSessions() {
+  if (!currentUser) return;
+  try {
+    const data = await fetchJSON(API.sessionList);
+    renderSavedSessions(data.items || []);
+  } catch (_) {
+    renderSavedSessions([]);
+  }
+}
+
+async function saveCurrentSession() {
+  const name = $("session-name")?.value?.trim() || "";
+  if (!name) {
+    setSessionStatus("Add a name before saving.");
+    return;
+  }
+  try {
+    await fetchJSON(API.sessionSave, { method: "POST", body: JSON.stringify({ name }) });
+    $("session-name").value = "";
+    setSessionStatus("Session saved.");
+    await loadSavedSessions();
+  } catch (err) {
+    setSessionStatus(`Save failed: ${err.message}`);
+  }
+}
+
+async function loadSavedSessionById(sessionId) {
+  try {
+    await fetchJSON(API.sessionLoad, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    setSessionStatus("Session loaded.");
+    await refreshState();
+  } catch (err) {
+    setSessionStatus(`Load failed: ${err.message}`);
+  }
+}
+
 function getQuickAddIds() {
   const fav = getFavorites();
   const used = new Set(fav);
@@ -457,7 +604,30 @@ function formatStopBy(hoursFromNow) {
 async function refreshState() {
   const hoursTarget = $("hours-until-target")?.value ? parseFloat($("hours-until-target").value) : null;
   const url = hoursTarget != null ? `${API.state}?hours_until_target=${hoursTarget}` : API.state;
-  const state = await fetchJSON(url);
+  let state = null;
+  try {
+    state = await fetchJSON(url);
+  } catch (err) {
+    if (String(err.message || "").toLowerCase().includes("authentication")) {
+      setAuthUI(false);
+      return;
+    }
+    throw err;
+  }
+
+  if (!state.authenticated) {
+    setAuthUI(false);
+    return;
+  }
+
+  if (!state.configured) {
+    $("setup-section").style.display = "block";
+    $("tracking-section").style.display = "none";
+    return;
+  }
+
+  $("setup-section").style.display = "none";
+  $("tracking-section").style.display = "block";
 
   const bacEl = $("bac-now");
   if (bacEl) {
@@ -570,6 +740,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderFriends();
   setupShareButton();
   setupFeedbackTools();
+  await refreshAuth();
+
+  $("btn-login")?.addEventListener("click", async () => {
+    try {
+      await authLogin();
+    } catch (err) {
+      setAuthStatus(`Login failed: ${err.message}`);
+    }
+  });
+
+  $("btn-register")?.addEventListener("click", async () => {
+    try {
+      await authRegister();
+    } catch (err) {
+      setAuthStatus(`Register failed: ${err.message}`);
+    }
+  });
+
+  $("btn-logout")?.addEventListener("click", async () => {
+    try {
+      await authLogout();
+    } catch (err) {
+      setAuthStatus(`Logout failed: ${err.message}`);
+    }
+  });
 
   $("btn-setup").addEventListener("click", setup);
 
@@ -601,5 +796,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const target = e.target.closest(".friend-action");
     if (!target) return;
     applyFriendAction(target.dataset.friendId, target.dataset.action);
+  });
+
+  $("btn-save-session")?.addEventListener("click", saveCurrentSession);
+  $("saved-session-list")?.addEventListener("click", async (e) => {
+    const target = e.target.closest(".saved-load");
+    if (!target) return;
+    await loadSavedSessionById(target.dataset.sessionId);
   });
 });

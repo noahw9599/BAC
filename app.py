@@ -10,9 +10,19 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request, session as flask_session
 
+from bac_app.auth_store import (
+    authenticate_user,
+    create_user,
+    get_user_by_id,
+    get_user_session_payload,
+    init_db as init_auth_db,
+    list_user_sessions,
+    save_user_session,
+)
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drinks import list_drink_types
-from bac_app.feedback_store import init_db, list_recent, save_feedback
+from bac_app.feedback_store import init_db as init_feedback_db
+from bac_app.feedback_store import list_recent, save_feedback
 from bac_app.hangover import get_plan as get_hangover_plan
 from bac_app.session import Session
 
@@ -28,17 +38,30 @@ MIN_COUNT = 0.25
 MAX_COUNT = 20.0
 MAX_HOURS_AGO = 24.0
 SESSION_KEY = "bac_session"
+AUTH_USER_KEY = "auth_user_id"
+
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
+DEFAULT_AUTH_DB_PATH = str(Path("instance") / "app.db")
 
 
 def _feedback_db_path() -> str:
     return os.environ.get("FEEDBACK_DB_PATH", DEFAULT_FEEDBACK_DB_PATH)
 
 
+def _auth_db_path() -> str:
+    return os.environ.get("APP_DB_PATH", DEFAULT_AUTH_DB_PATH)
+
+
 def _ensure_feedback_db() -> None:
     db_path = Path(_feedback_db_path())
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    init_db(str(db_path))
+    init_feedback_db(str(db_path))
+
+
+def _ensure_auth_db() -> None:
+    db_path = Path(_auth_db_path())
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    init_auth_db(str(db_path))
 
 
 def _admin_token() -> str:
@@ -122,14 +145,85 @@ def set_session(model: Session | None):
     flask_session[SESSION_KEY] = _session_to_cookie(model)
 
 
+def _require_user_id() -> int | None:
+    user_id = flask_session.get(AUTH_USER_KEY)
+    return user_id if isinstance(user_id, int) else None
+
+
+def _get_current_user() -> dict[str, Any] | None:
+    user_id = _require_user_id()
+    if user_id is None:
+        return None
+    _ensure_auth_db()
+    return get_user_by_id(_auth_db_path(), user_id)
+
+
+def _auth_required_error():
+    return jsonify({"error": "Authentication required"}), 401
+
+
 @app.route("/")
 def index():
     _ensure_feedback_db()
+    _ensure_auth_db()
     return render_template("index.html")
 
 
 @app.route("/healthz")
 def healthz():
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/me")
+def api_auth_me():
+    user = _get_current_user()
+    if user is None:
+        return jsonify({"authenticated": False, "user": None})
+    return jsonify({"authenticated": True, "user": user})
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    email = str(data.get("email", "")).strip().lower()
+    password = str(data.get("password", ""))
+    display_name = str(data.get("display_name", "")).strip() or email.split("@")[0]
+
+    if "@" not in email or len(email) < 5:
+        return jsonify({"error": "Valid email is required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if len(display_name) > 40:
+        return jsonify({"error": "Display name must be 40 characters or fewer"}), 400
+
+    user = create_user(_auth_db_path(), email=email, password=password, display_name=display_name)
+    if user is None:
+        return jsonify({"error": "Email already registered"}), 409
+
+    flask_session[AUTH_USER_KEY] = user["id"]
+    return jsonify({"ok": True, "user": user})
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    email = str(data.get("email", "")).strip().lower()
+    password = str(data.get("password", ""))
+
+    user = authenticate_user(_auth_db_path(), email=email, password=password)
+    if user is None:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    flask_session[AUTH_USER_KEY] = user["id"]
+    return jsonify({"ok": True, "user": user})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    flask_session.pop(AUTH_USER_KEY, None)
+    flask_session.pop(SESSION_KEY, None)
     return jsonify({"ok": True})
 
 
@@ -147,6 +241,9 @@ def api_catalog():
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
+    if _require_user_id() is None:
+        return _auth_required_error()
+
     data = request.get_json() or {}
     weight = _clamp_float(data.get("weight_lb"), 160.0, MIN_WEIGHT_LB, MAX_WEIGHT_LB)
     is_male = _parse_bool(data.get("is_male"), default=True)
@@ -156,6 +253,9 @@ def api_setup():
 
 @app.route("/api/drink", methods=["POST"])
 def api_drink():
+    if _require_user_id() is None:
+        return _auth_required_error()
+
     model = get_session()
     if model is None:
         return jsonify({"error": "Set weight and sex first"}), 400
@@ -176,11 +276,14 @@ def api_drink():
 
 @app.route("/api/state")
 def api_state():
+    if _require_user_id() is None:
+        return jsonify({"authenticated": False, **_empty_state()})
+
     model = get_session()
     hours_until_target = request.args.get("hours_until_target", type=float)
 
     if model is None:
-        return jsonify(_empty_state())
+        return jsonify({"authenticated": True, **_empty_state()})
 
     events = model.events
     start_h = min((t for t, _ in events), default=0) - 0.5
@@ -198,6 +301,7 @@ def api_state():
         )
 
     return jsonify({
+        "authenticated": True,
         "configured": True,
         "weight_lb": model.weight_lb,
         "is_male": model.is_male,
@@ -214,6 +318,9 @@ def api_state():
 
 @app.route("/api/hangover-plan")
 def api_hangover_plan():
+    if _require_user_id() is None:
+        return _auth_required_error()
+
     model = get_session()
     hours = request.args.get("hours_until_target", type=float)
     if model is None or hours is None or hours < 0:
@@ -230,10 +337,74 @@ def api_hangover_plan():
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
+    if _require_user_id() is None:
+        return _auth_required_error()
+
     model = get_session()
     if model is None:
         return jsonify({"ok": True})
     set_session(Session(weight_lb=model.weight_lb, is_male=model.is_male))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/session/save", methods=["POST"])
+def api_session_save():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+
+    _ensure_auth_db()
+    model = get_session()
+    if model is None:
+        return jsonify({"error": "No active session to save"}), 400
+
+    data = request.get_json() or {}
+    name = str(data.get("name", "")).strip() or "Untitled session"
+    if len(name) > 80:
+        return jsonify({"error": "Name must be 80 characters or fewer"}), 400
+
+    session_id = save_user_session(
+        _auth_db_path(),
+        user_id=user_id,
+        name=name,
+        payload=_session_to_cookie(model),
+    )
+    return jsonify({"ok": True, "session_id": session_id})
+
+
+@app.route("/api/session/list")
+def api_session_list():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+
+    _ensure_auth_db()
+    items = list_user_sessions(_auth_db_path(), user_id=user_id)
+    return jsonify({"items": items})
+
+
+@app.route("/api/session/load", methods=["POST"])
+def api_session_load():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    try:
+        session_id = int(data.get("session_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid session_id is required"}), 400
+
+    payload = get_user_session_payload(_auth_db_path(), user_id=user_id, session_id=session_id)
+    if payload is None:
+        return jsonify({"error": "Saved session not found"}), 404
+
+    model = _session_from_cookie(payload)
+    if model is None:
+        return jsonify({"error": "Saved session is invalid"}), 400
+
+    set_session(model)
     return jsonify({"ok": True})
 
 

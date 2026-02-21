@@ -6,12 +6,18 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
+    disks:
+      - name: bac-data
+        mountPath: /var/data
+        sizeGB: 1
     envVars:
       - key: APP_SECRET_KEY
         generateValue: true
       - key: SESSION_COOKIE_SECURE
         value: "1"
+      - key: APP_DB_PATH
+        value: /var/data/app.db
       - key: FEEDBACK_DB_PATH
-        value: /tmp/feedback.db
+        value: /var/data/feedback.db
       - key: ADMIN_TOKEN
         generateValue: true

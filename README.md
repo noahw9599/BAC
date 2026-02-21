@@ -20,6 +20,8 @@ Important: this is an educational estimator, not a medical device or legal tool.
 - Local social tracking: friend group drink/water counters
 - Installable mobile web app (PWA) with offline shell caching
 - Per-user session isolation (safe for multi-user public testing)
+- Account system (register/login/logout) with per-user saved sessions
+- Persistent feedback API and admin feedback feed
 
 ## Tech Stack
 
@@ -84,6 +86,13 @@ python -m pytest -q -p no:debugging
 - `GET /api/state`
 - `GET /api/hangover-plan`
 - `POST /api/reset`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `POST /api/session/save`
+- `GET /api/session/list`
+- `POST /api/session/load`
 - `POST /api/feedback`
 - `GET /api/feedback/recent?token=...` (admin)
 
@@ -97,6 +106,8 @@ This repo includes `render.yaml` for one-click deployment.
 4. After deploy, open the generated URL and share it.
 5. View tester feedback via:
    `https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
+
+User account data and saved BAC sessions are stored in SQLite on a mounted Render disk (`/var/data`).
 
 Manual start command (if not using blueprint):
 
