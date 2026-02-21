@@ -34,6 +34,7 @@ let currentUser = null;
 let serverFavorites = [];
 let savedSessionsCache = [];
 let savedSessionDates = [];
+let authMode = "login";
 
 function $(id) {
   return document.getElementById(id);
@@ -95,6 +96,9 @@ function setAuthUI(authenticated, user = null) {
 
   const label = user?.display_name || user?.email || "user";
   setAuthStatus(`Signed in as ${label}`);
+  if (user?.default_weight_lb && $("weight")) {
+    $("weight").value = Math.round(user.default_weight_lb);
+  }
 }
 
 async function refreshAuth() {
@@ -126,22 +130,50 @@ async function loadServerFavorites() {
   }
 }
 
-function getAuthPayload() {
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  const loginView = $("auth-login-view");
+  const registerView = $("auth-register-view");
+  const loginChip = $("btn-mode-login");
+  const registerChip = $("btn-mode-register");
+  if (loginView) loginView.style.display = authMode === "login" ? "block" : "none";
+  if (registerView) registerView.style.display = authMode === "register" ? "block" : "none";
+  if (loginChip) loginChip.classList.toggle("active", authMode === "login");
+  if (registerChip) registerChip.classList.toggle("active", authMode === "register");
+  if (!currentUser) {
+    setAuthStatus(
+      authMode === "login"
+        ? "Log in with your email and password."
+        : "Create an account with your profile details so sessions can persist."
+    );
+  }
+}
+
+function getLoginPayload() {
   return {
-    email: $("auth-email")?.value?.trim() || "",
-    password: $("auth-password")?.value?.trim() || "",
-    display_name: $("auth-display-name")?.value?.trim() || "",
+    email: $("auth-login-email")?.value?.trim() || "",
+    password: $("auth-login-password")?.value?.trim() || "",
+  };
+}
+
+function getRegisterPayload() {
+  return {
+    display_name: $("auth-register-name")?.value?.trim() || "",
+    email: $("auth-register-email")?.value?.trim() || "",
+    password: $("auth-register-password")?.value?.trim() || "",
+    height_in: $("auth-register-height")?.value || "",
+    default_weight_lb: $("auth-register-weight")?.value || "",
   };
 }
 
 async function authRegister() {
-  const payload = getAuthPayload();
+  const payload = getRegisterPayload();
   await fetchJSON(API.authRegister, { method: "POST", body: JSON.stringify(payload) });
   await refreshAuth();
 }
 
 async function authLogin() {
-  const payload = getAuthPayload();
+  const payload = getLoginPayload();
   await fetchJSON(API.authLogin, { method: "POST", body: JSON.stringify(payload) });
   await refreshAuth();
 }
@@ -915,7 +947,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  $("auth-password")?.addEventListener("keydown", async (e) => {
+  $("btn-mode-login")?.addEventListener("click", () => setAuthMode("login"));
+  $("btn-mode-register")?.addEventListener("click", () => setAuthMode("register"));
+
+  $("auth-login-password")?.addEventListener("keydown", async (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
     try {
@@ -924,6 +959,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       setAuthStatus(`Login failed: ${err.message}`);
     }
   });
+  setAuthMode("login");
 
   $("btn-setup").addEventListener("click", setup);
 

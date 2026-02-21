@@ -205,6 +205,14 @@ def api_auth_register():
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", "")).strip()
     display_name = str(data.get("display_name", "")).strip() or email.split("@")[0]
+    try:
+        height_in = float(data.get("height_in"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Height is required"}), 400
+    try:
+        default_weight_lb = float(data.get("default_weight_lb"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Weight is required"}), 400
 
     if "@" not in email or len(email) < 5:
         return jsonify({"error": "Valid email is required"}), 400
@@ -212,8 +220,19 @@ def api_auth_register():
         return jsonify({"error": "Password must be at least 8 characters"}), 400
     if len(display_name) > 40:
         return jsonify({"error": "Display name must be 40 characters or fewer"}), 400
+    if height_in < 36.0 or height_in > 96.0:
+        return jsonify({"error": "Height must be between 36 and 96 inches"}), 400
+    if default_weight_lb < MIN_WEIGHT_LB or default_weight_lb > MAX_WEIGHT_LB:
+        return jsonify({"error": "Weight must be between 80 and 400 lb"}), 400
 
-    user = create_user(_auth_db_path(), email=email, password=password, display_name=display_name)
+    user = create_user(
+        _auth_db_path(),
+        email=email,
+        password=password,
+        display_name=display_name,
+        height_in=height_in,
+        default_weight_lb=default_weight_lb,
+    )
     if user is None:
         return jsonify({"error": "Email already registered"}), 409
 

@@ -19,10 +19,18 @@ def init_db(db_path: str) -> None:
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 display_name TEXT NOT NULL,
+                height_in REAL,
+                default_weight_lb REAL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
+        # Lightweight migration for older DBs created before profile columns existed.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "height_in" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN height_in REAL")
+        if "default_weight_lb" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN default_weight_lb REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS saved_sessions (
@@ -50,27 +58,44 @@ def init_db(db_path: str) -> None:
         conn.commit()
 
 
-def create_user(db_path: str, *, email: str, password: str, display_name: str) -> dict[str, Any] | None:
+def create_user(
+    db_path: str,
+    *,
+    email: str,
+    password: str,
+    display_name: str,
+    height_in: float,
+    default_weight_lb: float,
+) -> dict[str, Any] | None:
     password_hash = generate_password_hash(password)
     try:
         with sqlite3.connect(db_path) as conn:
             cur = conn.execute(
-                "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
-                (email.lower().strip(), password_hash, display_name.strip()),
+                """
+                INSERT INTO users (email, password_hash, display_name, height_in, default_weight_lb)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (email.lower().strip(), password_hash, display_name.strip(), float(height_in), float(default_weight_lb)),
             )
             conn.commit()
             user_id = int(cur.lastrowid)
     except sqlite3.IntegrityError:
         return None
 
-    return {"id": user_id, "email": email.lower().strip(), "display_name": display_name.strip()}
+    return {
+        "id": user_id,
+        "email": email.lower().strip(),
+        "display_name": display_name.strip(),
+        "height_in": float(height_in),
+        "default_weight_lb": float(default_weight_lb),
+    }
 
 
 def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, Any] | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name, password_hash FROM users WHERE email = ?",
+            "SELECT id, email, display_name, height_in, default_weight_lb, password_hash FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
 
@@ -83,19 +108,31 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
     if not ok:
         return None
 
-    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "height_in": row["height_in"],
+        "default_weight_lb": row["default_weight_lb"],
+    }
 
 
 def get_user_by_id(db_path: str, user_id: int) -> dict[str, Any] | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name FROM users WHERE id = ?",
+            "SELECT id, email, display_name, height_in, default_weight_lb FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     if row is None:
         return None
-    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "height_in": row["height_in"],
+        "default_weight_lb": row["default_weight_lb"],
+    }
 
 
 def save_user_session(db_path: str, *, user_id: int, name: str, payload: dict[str, Any]) -> int:

@@ -20,10 +20,23 @@ def client():
         yield c
 
 
-def register(client, email="student@example.edu", password="password123", name="Student"):
+def register(
+    client,
+    email="student@example.edu",
+    password="password123",
+    name="Student",
+    height_in=70,
+    default_weight_lb=160,
+):
     res = client.post(
         "/api/auth/register",
-        json={"email": email, "password": password, "display_name": name},
+        json={
+            "email": email,
+            "password": password,
+            "display_name": name,
+            "height_in": height_in,
+            "default_weight_lb": default_weight_lb,
+        },
     )
     assert res.status_code == 200
     return res.get_json()["user"]
@@ -121,7 +134,13 @@ def test_login_allows_trimmed_password_input(client):
 def test_register_trims_password(client):
     reg = client.post(
         "/api/auth/register",
-        json={"email": "trimreg@example.edu", "password": " password123 ", "display_name": "TrimReg"},
+        json={
+            "email": "trimreg@example.edu",
+            "password": " password123 ",
+            "display_name": "TrimReg",
+            "height_in": 69,
+            "default_weight_lb": 165,
+        },
     )
     assert reg.status_code == 200
     client.post("/api/auth/logout")
@@ -187,6 +206,32 @@ def test_favorites_persist_per_user(client):
     assert favs_again.get_json()["favorites"][0] == "vodka-soda"
 
 
+def test_register_requires_height_and_weight(client):
+    bad_height = client.post(
+        "/api/auth/register",
+        json={
+            "email": "bad1@example.edu",
+            "password": "password123",
+            "display_name": "Bad1",
+            "height_in": 20,
+            "default_weight_lb": 160,
+        },
+    )
+    assert bad_height.status_code == 400
+
+    bad_weight = client.post(
+        "/api/auth/register",
+        json={
+            "email": "bad2@example.edu",
+            "password": "password123",
+            "display_name": "Bad2",
+            "height_in": 70,
+            "default_weight_lb": 40,
+        },
+    )
+    assert bad_weight.status_code == 400
+
+
 def test_sessions_are_isolated_per_client():
     app.config["TESTING"] = True
     c1 = app.test_client()
@@ -194,7 +239,13 @@ def test_sessions_are_isolated_per_client():
 
     c1.post(
         "/api/auth/register",
-        json={"email": "a@example.edu", "password": "password123", "display_name": "A"},
+        json={
+            "email": "a@example.edu",
+            "password": "password123",
+            "display_name": "A",
+            "height_in": 70,
+            "default_weight_lb": 160,
+        },
     )
     c1.post("/api/setup", json={"weight_lb": 160, "is_male": True})
     c1.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})

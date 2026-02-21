@@ -22,24 +22,55 @@
 
     <section class="auth card" id="auth-section">
       <h2>Account</h2>
-      <p class="mini-help" id="auth-status">Sign in to save and reload past sessions.</p>
-      <div class="row">
-        <label>
-          Email
-          <input type="email" id="auth-email" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com">
-        </label>
-        <label>
-          Password
-          <input type="password" id="auth-password" name="password" autocomplete="current-password" placeholder="At least 8 chars">
-        </label>
+      <div class="friend-actions" id="auth-mode-switch">
+        <button type="button" class="chip active" id="btn-mode-login">Log in</button>
+        <button type="button" class="chip" id="btn-mode-register">Register</button>
       </div>
-      <label>
-        Display name (for register)
-        <input type="text" id="auth-display-name" maxlength="40" placeholder="Optional">
-      </label>
+      <p class="mini-help" id="auth-status">Log in with your email and password.</p>
+
+      <div id="auth-login-view">
+        <div class="row">
+          <label>
+            Email
+            <input type="email" id="auth-login-email" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com">
+          </label>
+          <label>
+            Password
+            <input type="password" id="auth-login-password" name="password" autocomplete="current-password" placeholder="Your password">
+          </label>
+        </div>
+        <button type="button" class="btn btn-primary btn-block" id="btn-login">Log in</button>
+      </div>
+
+      <div id="auth-register-view" style="display:none;">
+        <div class="row">
+          <label>
+            Name
+            <input type="text" id="auth-register-name" maxlength="40" autocomplete="name" placeholder="Your name">
+          </label>
+          <label>
+            Email
+            <input type="email" id="auth-register-email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com">
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            Password
+            <input type="password" id="auth-register-password" autocomplete="new-password" placeholder="At least 8 characters">
+          </label>
+          <label>
+            Height (in)
+            <input type="number" id="auth-register-height" min="36" max="96" step="1" placeholder="70">
+          </label>
+        </div>
+        <label>
+          Weight (lb)
+          <input type="number" id="auth-register-weight" min="80" max="400" step="1" placeholder="160">
+        </label>
+        <button type="button" class="btn btn-primary btn-block" id="btn-register">Create account</button>
+      </div>
+
       <div class="feedback-actions">
-        <button type="button" class="btn btn-primary" id="btn-login">Log in</button>
-        <button type="button" class="btn btn-secondary" id="btn-register">Create account</button>
         <button type="button" class="btn btn-secondary" id="btn-logout" style="display:none;">Log out</button>
       </div>
     </section>
