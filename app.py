@@ -5,6 +5,7 @@ Run from project root:
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from bac_app.auth_store import (
     get_user_session_payload,
     init_db as init_auth_db,
     list_favorite_drinks,
+    list_session_dates,
     list_user_sessions,
     save_user_session,
     track_favorite_drink,
@@ -164,6 +166,14 @@ def _get_current_user() -> dict[str, Any] | None:
 
 def _auth_required_error():
     return jsonify({"error": "Authentication required"}), 401
+
+
+def _is_valid_date_yyyy_mm_dd(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
 
 
 @app.route("/")
@@ -400,8 +410,21 @@ def api_session_list():
         return _auth_required_error()
 
     _ensure_auth_db()
-    items = list_user_sessions(_auth_db_path(), user_id=user_id)
+    session_date = request.args.get("date", type=str)
+    if session_date and not _is_valid_date_yyyy_mm_dd(session_date):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    items = list_user_sessions(_auth_db_path(), user_id=user_id, session_date=session_date)
     return jsonify({"items": items})
+
+
+@app.route("/api/session/dates")
+def api_session_dates():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    return jsonify({"items": list_session_dates(_auth_db_path(), user_id=user_id)})
 
 
 @app.route("/api/session/load", methods=["POST"])

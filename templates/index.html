@@ -197,6 +197,12 @@
       <div class="saved-sessions card-lite">
         <h3>Saved sessions</h3>
         <div class="friend-add">
+          <label class="sr-only" for="session-date">Session date</label>
+          <input type="date" id="session-date">
+          <button type="button" class="btn btn-secondary" id="btn-session-today">Today</button>
+        </div>
+        <div id="session-date-list" class="friend-actions"></div>
+        <div class="friend-add">
           <label class="sr-only" for="session-name">Session name</label>
           <input type="text" id="session-name" maxlength="80" placeholder="Name this session">
           <button type="button" class="btn btn-primary" id="btn-save-session">Save</button>

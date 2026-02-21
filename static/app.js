@@ -13,6 +13,7 @@ const API = {
   sessionList: "/api/session/list",
   sessionLoad: "/api/session/load",
   favorites: "/api/favorites",
+  sessionDates: "/api/session/dates",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -30,6 +31,8 @@ let catalogById = {};
 let friends = [];
 let currentUser = null;
 let serverFavorites = [];
+let savedSessionsCache = [];
+let savedSessionDates = [];
 
 function $(id) {
   return document.getElementById(id);
@@ -55,6 +58,14 @@ function setSessionStatus(text) {
   if (el) el.textContent = text || "";
 }
 
+function todayYMD() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function setAuthUI(authenticated, user = null) {
   const setup = $("setup-section");
   const tracking = $("tracking-section");
@@ -69,11 +80,15 @@ function setAuthUI(authenticated, user = null) {
   if (!authenticated) {
     serverFavorites = [];
     refreshQuickAdd();
+    savedSessionsCache = [];
+    savedSessionDates = [];
     if (setup) setup.style.display = "none";
     if (tracking) tracking.style.display = "none";
     setAuthStatus("Sign in to save and reload past sessions.");
     const list = $("saved-session-list");
     if (list) list.innerHTML = "";
+    const dateList = $("session-date-list");
+    if (dateList) dateList.innerHTML = "";
     return;
   }
 
@@ -390,6 +405,7 @@ function updateChartInsights(state) {
   if (!peakEl || !legalEl || !riskEl) return;
 
   const curve = Array.isArray(state.curve) ? state.curve : [];
+  const bac = state.bac_now ?? 0;
   const peak = curve.length ? Math.max(...curve.map((p) => p.bac || 0)) : state.bac_now || 0;
   peakEl.textContent = Number(peak).toFixed(3);
 
@@ -405,7 +421,6 @@ function updateChartInsights(state) {
   }
   legalEl.textContent = belowLegal == null ? ">24h" : formatHoursShort(belowLegal);
 
-  const bac = state.bac_now ?? 0;
   if (bac >= 0.08) riskEl.textContent = "High";
   else if (bac >= 0.05) riskEl.textContent = "Elevated";
   else if (bac >= 0.02) riskEl.textContent = "Low";
@@ -504,23 +519,54 @@ function setupShareButton() {
   });
 }
 
+function formatReadableDate(ymd) {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd || "";
+  const [y, m, d] = ymd.split("-");
+  return `${m}/${d}/${y}`;
+}
+
+function renderSessionDateChips() {
+  const wrap = $("session-date-list");
+  const input = $("session-date");
+  if (!wrap || !input) return;
+  wrap.innerHTML = "";
+  savedSessionDates.slice(0, 21).forEach((d) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip saved-date";
+    btn.dataset.date = d.session_date;
+    btn.textContent = `${formatReadableDate(d.session_date)} (${d.session_count})`;
+    if (input.value === d.session_date) btn.classList.add("active");
+    wrap.appendChild(btn);
+  });
+}
+
 function renderSavedSessions(items) {
   const list = $("saved-session-list");
+  const input = $("session-date");
   if (!list) return;
-  if (!items || !items.length) {
+  const selectedDate = input?.value || "";
+
+  const filtered = selectedDate
+    ? (items || []).filter((item) => item.session_date === selectedDate)
+    : (items || []);
+
+  renderSessionDateChips();
+
+  if (!filtered || !filtered.length) {
     list.innerHTML = "";
-    setSessionStatus("No saved sessions yet.");
+    setSessionStatus(selectedDate ? `No sessions on ${formatReadableDate(selectedDate)}.` : "No saved sessions yet.");
     return;
   }
 
-  setSessionStatus(`Saved sessions: ${items.length}`);
+  setSessionStatus(selectedDate ? `${filtered.length} session(s) on ${formatReadableDate(selectedDate)}.` : `Saved sessions: ${filtered.length}`);
   list.innerHTML = "";
-  items.forEach((item) => {
+  filtered.forEach((item) => {
     const row = document.createElement("div");
     row.className = "friend-row";
     row.innerHTML = `
       <div class="friend-main">${item.name}</div>
-      <div class="friend-counts">${item.created_at} | Drinks ${item.drink_count}</div>
+      <div class="friend-counts">${item.created_at} | Drinks ${item.drink_count} | Date ${formatReadableDate(item.session_date)}</div>
       <div class="friend-actions">
         <button type="button" class="chip saved-load" data-session-id="${item.id}">Load</button>
       </div>
@@ -532,9 +578,17 @@ function renderSavedSessions(items) {
 async function loadSavedSessions() {
   if (!currentUser) return;
   try {
-    const data = await fetchJSON(API.sessionList);
-    renderSavedSessions(data.items || []);
+    const [data, dates] = await Promise.all([fetchJSON(API.sessionList), fetchJSON(API.sessionDates)]);
+    savedSessionsCache = data.items || [];
+    savedSessionDates = dates.items || [];
+    const dateInput = $("session-date");
+    if (dateInput && !dateInput.value && savedSessionDates.length) {
+      dateInput.value = savedSessionDates[0].session_date;
+    }
+    renderSavedSessions(savedSessionsCache);
   } catch (_) {
+    savedSessionsCache = [];
+    savedSessionDates = [];
     renderSavedSessions([]);
   }
 }
@@ -889,5 +943,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     const target = e.target.closest(".saved-load");
     if (!target) return;
     await loadSavedSessionById(target.dataset.sessionId);
+  });
+  $("session-date")?.addEventListener("change", () => {
+    renderSavedSessions(savedSessionsCache);
+  });
+  $("btn-session-today")?.addEventListener("click", () => {
+    const input = $("session-date");
+    if (!input) return;
+    input.value = todayYMD();
+    renderSavedSessions(savedSessionsCache);
+  });
+  $("session-date-list")?.addEventListener("click", (e) => {
+    const target = e.target.closest(".saved-date");
+    if (!target) return;
+    const input = $("session-date");
+    if (!input) return;
+    input.value = target.dataset.date || "";
+    renderSavedSessions(savedSessionsCache);
   });
 });

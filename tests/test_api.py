@@ -143,6 +143,16 @@ def test_saved_sessions_roundtrip(client):
     reloaded = client.get("/api/state").get_json()
     assert reloaded["drink_count"] == 1
 
+    dates = client.get("/api/session/dates")
+    assert dates.status_code == 200
+    date_items = dates.get_json()["items"]
+    assert len(date_items) >= 1
+    session_date = date_items[0]["session_date"]
+
+    by_date = client.get(f"/api/session/list?date={session_date}")
+    assert by_date.status_code == 200
+    assert by_date.get_json()["items"][0]["session_date"] == session_date
+
 
 def test_favorites_persist_per_user(client):
     register(client, email="fav@example.edu", password="password123")

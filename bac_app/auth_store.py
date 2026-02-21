@@ -109,19 +109,37 @@ def save_user_session(db_path: str, *, user_id: int, name: str, payload: dict[st
         return int(cur.lastrowid)
 
 
-def list_user_sessions(db_path: str, *, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+def list_user_sessions(
+    db_path: str,
+    *,
+    user_id: int,
+    limit: int = 200,
+    session_date: str | None = None,
+) -> list[dict[str, Any]]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            SELECT id, name, created_at, payload_json
-            FROM saved_sessions
-            WHERE user_id = ?
-            ORDER BY rowid DESC
-            LIMIT ?
-            """,
-            (user_id, max(1, min(limit, 200))),
-        ).fetchall()
+        if session_date:
+            rows = conn.execute(
+                """
+                SELECT id, name, created_at, payload_json, date(created_at) AS session_date
+                FROM saved_sessions
+                WHERE user_id = ? AND date(created_at) = ?
+                ORDER BY rowid DESC
+                LIMIT ?
+                """,
+                (user_id, session_date, max(1, min(limit, 200))),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, name, created_at, payload_json, date(created_at) AS session_date
+                FROM saved_sessions
+                WHERE user_id = ?
+                ORDER BY rowid DESC
+                LIMIT ?
+                """,
+                (user_id, max(1, min(limit, 200))),
+            ).fetchall()
 
     out = []
     for row in rows:
@@ -135,10 +153,28 @@ def list_user_sessions(db_path: str, *, user_id: int, limit: int = 50) -> list[d
                 "id": row["id"],
                 "name": row["name"],
                 "created_at": row["created_at"],
+                "session_date": row["session_date"],
                 "drink_count": len(events) if isinstance(events, list) else 0,
             }
         )
     return out
+
+
+def list_session_dates(db_path: str, *, user_id: int, limit: int = 120) -> list[dict[str, Any]]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT date(created_at) AS session_date, COUNT(*) AS session_count
+            FROM saved_sessions
+            WHERE user_id = ?
+            GROUP BY date(created_at)
+            ORDER BY session_date DESC
+            LIMIT ?
+            """,
+            (user_id, max(1, min(limit, 366))),
+        ).fetchall()
+    return [{"session_date": row["session_date"], "session_count": row["session_count"]} for row in rows]
 
 
 def get_user_session_payload(db_path: str, *, user_id: int, session_id: int) -> dict[str, Any] | None:

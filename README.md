@@ -92,6 +92,8 @@ python -m pytest -q -p no:debugging
 - `GET /api/auth/me`
 - `POST /api/session/save`
 - `GET /api/session/list`
+- `GET /api/session/list?date=YYYY-MM-DD`
+- `GET /api/session/dates`
 - `POST /api/session/load`
 - `POST /api/feedback`
 - `GET /api/feedback/recent?token=...` (admin)
