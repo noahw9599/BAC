@@ -22,6 +22,8 @@ const STORAGE_FAVORITES = "drinking-buddy-favorites";
 const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
 const STORAGE_FRIENDS = "drinking-buddy-friends";
 const STORAGE_FEEDBACK_DRAFT = "drinking-buddy-feedback-draft";
+const STORAGE_TARGET_DATE = "drinking-buddy-target-date";
+const STORAGE_TARGET_TIME = "drinking-buddy-target-time";
 const MAX_FAVORITES = 6;
 const MAX_FRIENDS = 12;
 
@@ -218,6 +220,83 @@ function setStoredText(key, value) {
   try {
     localStorage.setItem(key, String(value));
   } catch (_) {}
+}
+
+function toYmd(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function toHm(dateObj) {
+  const h = String(dateObj.getHours()).padStart(2, "0");
+  const m = String(dateObj.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function initializeTargetInputs() {
+  const dateEl = $("target-date");
+  const timeEl = $("target-time");
+  if (!dateEl || !timeEl) return;
+
+  const now = new Date();
+  const storedDate = getStoredText(STORAGE_TARGET_DATE, "");
+  const storedTime = getStoredText(STORAGE_TARGET_TIME, "");
+  dateEl.value = storedDate || toYmd(now);
+  timeEl.value = storedTime || "08:00";
+
+  const onChange = () => {
+    setStoredText(STORAGE_TARGET_DATE, dateEl.value || "");
+    setStoredText(STORAGE_TARGET_TIME, timeEl.value || "");
+    refreshState().catch(() => {});
+  };
+
+  dateEl.addEventListener("change", onChange);
+  timeEl.addEventListener("change", onChange);
+
+  $("btn-target-tonight")?.addEventListener("click", () => {
+    const tonight = new Date();
+    tonight.setHours(23, 0, 0, 0);
+    dateEl.value = toYmd(tonight);
+    timeEl.value = "23:00";
+    onChange();
+  });
+
+  $("btn-target-tomorrow")?.addEventListener("click", () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 0, 0, 0);
+    dateEl.value = toYmd(tomorrow);
+    timeEl.value = "08:00";
+    onChange();
+  });
+}
+
+function getHoursUntilTargetFromInputs() {
+  const dateVal = $("target-date")?.value || "";
+  const timeVal = $("target-time")?.value || "";
+  if (!dateVal || !timeVal) return null;
+  const target = new Date(`${dateVal}T${timeVal}`);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  return (target.getTime() - now.getTime()) / 36e5;
+}
+
+function updateTargetSummary() {
+  const summary = $("target-summary");
+  if (!summary) return;
+  const hrs = getHoursUntilTargetFromInputs();
+  if (hrs == null) {
+    summary.textContent = "Set date and time to get planning advice.";
+    return null;
+  }
+  if (hrs <= 0) {
+    summary.textContent = "Target time is in the past. Pick a future time.";
+    return null;
+  }
+  summary.textContent = `Target is in about ${formatHoursShort(hrs)}.`;
+  return hrs;
 }
 
 function getWaterOz() {
@@ -740,7 +819,7 @@ function formatStopBy(hoursFromNow) {
 }
 
 async function refreshState() {
-  const hoursTarget = $("hours-until-target")?.value ? parseFloat($("hours-until-target").value) : null;
+  const hoursTarget = updateTargetSummary();
   const url = hoursTarget != null ? `${API.state}?hours_until_target=${hoursTarget}` : API.state;
   let state = null;
   try {
@@ -876,6 +955,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   await loadCatalog();
+  initializeTargetInputs();
   loadFriends();
   renderFriends();
   setupShareButton();
@@ -920,7 +1000,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("btn-reset").addEventListener("click", resetDrinks);
-  $("hours-until-target").addEventListener("change", refreshState);
 
   $("btn-add-water")?.addEventListener("click", async () => {
     addWaterOz(8);

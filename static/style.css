@@ -278,6 +278,28 @@ header h1 {
   color: var(--text);
 }
 
+.target-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.target-inputs input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.45rem 0.55rem;
+}
+
+@media (max-width: 420px) {
+  .target-inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
 .hangover-result {
   margin-top: 0.6rem;
   padding: 0.6rem;
