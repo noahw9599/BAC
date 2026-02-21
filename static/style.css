@@ -91,23 +91,21 @@ header h1 {
 .more-options {
   margin-bottom: 1rem;
   font-size: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 0.65rem;
 }
 
-.more-options summary {
-  cursor: pointer;
-  color: var(--muted);
-  padding: 0.4rem 0;
-  user-select: none;
-}
-
-.more-options summary:hover {
-  color: var(--primary);
+.more-options-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .add-custom {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
+  margin-top: 0.15rem;
 }
 
 .add-custom select {
