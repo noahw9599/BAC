@@ -11,6 +11,7 @@ const STORAGE_LAST_DRINK = "drinking-buddy-last-drink";
 const STORAGE_FAVORITES = "drinking-buddy-favorites";
 const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
 const STORAGE_FRIENDS = "drinking-buddy-friends";
+const STORAGE_FEEDBACK_DRAFT = "drinking-buddy-feedback-draft";
 const MAX_FAVORITES = 6;
 const MAX_FRIENDS = 12;
 
@@ -79,6 +80,21 @@ function getStoredNumber(key, fallback = 0) {
 }
 
 function setStoredNumber(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch (_) {}
+}
+
+function getStoredText(key, fallback = "") {
+  try {
+    const value = localStorage.getItem(key);
+    return value == null ? fallback : String(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function setStoredText(key, value) {
   try {
     localStorage.setItem(key, String(value));
   } catch (_) {}
@@ -231,6 +247,60 @@ function updateNightTools(state) {
     else if (drinkCount > 0) msg = "Pace looks moderate. Keep alternating with water.";
     paceCoach.textContent = msg;
   }
+}
+
+function setupFeedbackTools() {
+  const input = $("feedback-input");
+  const emailLink = $("feedback-email-link");
+  const copyBtn = $("btn-copy-feedback");
+  if (!input || !emailLink) return;
+
+  input.value = getStoredText(STORAGE_FEEDBACK_DRAFT, "");
+  const updateEmailHref = () => {
+    const body = encodeURIComponent(input.value.trim());
+    emailLink.href = `mailto:noahw9599@gmail.com?subject=BAC%20Tracker%20Feedback&body=${body}`;
+  };
+  updateEmailHref();
+
+  input.addEventListener("input", () => {
+    setStoredText(STORAGE_FEEDBACK_DRAFT, input.value);
+    updateEmailHref();
+  });
+
+  copyBtn?.addEventListener("click", async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "Copied";
+      window.setTimeout(() => {
+        copyBtn.textContent = "Copy feedback";
+      }, 1200);
+    } catch (_) {}
+  });
+}
+
+function setupShareButton() {
+  const btn = $("btn-share-app");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const shareData = {
+      title: "BAC Tracker",
+      text: "Try this BAC tracking web app and send me feedback.",
+      url: window.location.href,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(window.location.href);
+        btn.textContent = "Link copied";
+        window.setTimeout(() => {
+          btn.textContent = "Share app with friends";
+        }, 1200);
+      }
+    } catch (_) {}
+  });
 }
 
 function getQuickAddIds() {
@@ -452,9 +522,15 @@ async function refreshState() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  }
+
   await loadCatalog();
   loadFriends();
   renderFriends();
+  setupShareButton();
+  setupFeedbackTools();
 
   $("btn-setup").addEventListener("click", setup);
 

@@ -18,6 +18,8 @@ Important: this is an educational estimator, not a medical device or legal tool.
 - "Need to be sharp" planner with stop-by guidance
 - Night tools: hydration tracker and pace coach
 - Local social tracking: friend group drink/water counters
+- Installable mobile web app (PWA) with offline shell caching
+- Per-user session isolation (safe for multi-user public testing)
 
 ## Tech Stack
 
@@ -64,10 +66,14 @@ Open `http://127.0.0.1:5000`.
 ## Running Tests
 
 ```powershell
-python -m pytest -q -p no:debugging
+python -m pytest -q
 ```
 
-Note: `-p no:debugging` avoids a local environment conflict if a separate top-level folder named `code/` exists on your machine.
+If your local machine has a top-level folder named `code/`, run:
+
+```powershell
+python -m pytest -q -p no:debugging
+```
 
 ## API Endpoints
 
@@ -79,15 +85,25 @@ Note: `-p no:debugging` avoids a local environment conflict if a separate top-le
 - `GET /api/hangover-plan`
 - `POST /api/reset`
 
-## Deployment
+## Deployment (Render)
 
-The app is ready for platforms like Render/Railway/Fly/Heroku.
+This repo includes `render.yaml` for one-click deployment.
 
-Start command:
+1. Push to GitHub.
+2. In Render, choose `New +` -> `Blueprint`.
+3. Select this repo and deploy.
+4. After deploy, open the generated URL and share it.
+
+Manual start command (if not using blueprint):
 
 ```bash
-gunicorn -w 1 -b 0.0.0.0:$PORT app:app
+gunicorn -w 2 -b 0.0.0.0:$PORT app:app
 ```
+
+## Mobile/PWA Notes
+
+- On iPhone: open the deployed link in Safari, then `Share` -> `Add to Home Screen`.
+- On Android: open in Chrome and tap `Install app` when prompted.
 
 ## Safety and Scope
 

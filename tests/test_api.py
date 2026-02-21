@@ -2,14 +2,7 @@
 
 import pytest
 
-from app import app, set_session
-
-
-@pytest.fixture(autouse=True)
-def clear_session():
-    set_session(None)
-    yield
-    set_session(None)
+from app import app
 
 
 @pytest.fixture
@@ -73,3 +66,19 @@ def test_reset_keeps_profile_and_clears_events(client):
     data = state.get_json()
     assert data["configured"] is True
     assert data["drink_count"] == 0
+
+
+def test_sessions_are_isolated_per_client():
+    app.config["TESTING"] = True
+    c1 = app.test_client()
+    c2 = app.test_client()
+
+    c1.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    c1.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+
+    c2_state = c2.get("/api/state").get_json()
+    c1_state = c1.get("/api/state").get_json()
+
+    assert c1_state["configured"] is True
+    assert c1_state["drink_count"] == 1
+    assert c2_state["configured"] is False
