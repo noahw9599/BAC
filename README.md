@@ -69,7 +69,7 @@ Important: this is an educational estimator, not a legal or medical device. Neve
 
 - Python 3.10+
 - Flask 3
-- SQLite
+- SQLite (local/dev) + PostgreSQL (production persistence)
 - Vanilla JavaScript + Chart.js
 - Pytest
 - Gunicorn (deployment)
@@ -85,7 +85,7 @@ Browser (PWA UI)
        -> bac_app/hangover.py      (planner logic)
        -> bac_app/auth_store.py    (auth, sessions, social persistence)
        -> bac_app/catalog.py       (drink metadata)
-  -> SQLite (users, sessions, social graph, alerts, guardian links)
+  -> SQLite or PostgreSQL (users, sessions, social graph, alerts, guardian links)
 ```
 
 ## Project Structure
@@ -116,7 +116,7 @@ bac_tracker_web/
 ## Quick Demo (60 Seconds)
 
 1. Register account (name/email/password/gender/weight)
-2. Add a few drinks on `Now`
+2. Add a few drinks on `Live Track`
 3. Set a target time in "Need to be sharp"
 4. Open `Social` and create a group
 5. Create a guardian link and open it in a new tab
