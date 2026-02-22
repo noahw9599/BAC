@@ -32,6 +32,7 @@ from bac_app.auth_store import (
     list_friend_feed,
     list_friends,
     list_favorite_drinks,
+    list_recent_session_payloads,
     list_incoming_friend_requests,
     list_session_dates,
     list_user_sessions,
@@ -173,6 +174,7 @@ def _empty_state() -> dict[str, Any]:
         "bac_now": 0,
         "curve": [],
         "hours_until_sober_from_now": 0,
+        "session_events": [],
         "drink_count": 0,
         "total_calories": 0,
         "total_carbs_g": 0,
@@ -180,6 +182,7 @@ def _empty_state() -> dict[str, Any]:
         "hangover_plan": None,
         "drive_advice": None,
         "pace_prediction": None,
+        "chart_data": None,
     }
 
 
@@ -211,6 +214,108 @@ def _session_from_cookie(raw: Any) -> Session | None:
             sugar = _clamp_float(event[4], 0.0, 0.0, 1000.0)
             model.add_drink_grams(t, grams, calories=calories, carbs_g=carbs, sugar_g=sugar)
     return model
+
+
+def _session_events_payload(model: Session) -> list[dict[str, Any]]:
+    events = model.events_full
+    out: list[dict[str, Any]] = []
+    for idx, e in enumerate(events):
+        t, grams, calories, carbs, sugar = e
+        out.append(
+            {
+                "index": idx,
+                "hours_ago": round(abs(float(t)), 2),
+                "standard_drinks": round(float(grams) / 14.0, 2),
+                "grams_alcohol": round(float(grams), 2),
+                "calories": int(calories),
+                "carbs_g": round(float(carbs), 2),
+                "sugar_g": round(float(sugar), 2),
+            }
+        )
+    return out
+
+
+def _rebuild_model_from_events(base: Session, events: list[tuple[float, float, int, float, float]]) -> Session:
+    model = Session(weight_lb=base.weight_lb, is_male=base.is_male)
+    for t, grams, calories, carbs, sugar in events:
+        model.add_drink_grams(float(t), float(grams), calories=int(calories), carbs_g=float(carbs), sugar_g=float(sugar))
+    return model
+
+
+def _estimate_rate_grams_per_hour(events_bac: list[tuple[float, float]], lookback_hours: float = 3.0) -> float:
+    if not events_bac:
+        return 0.0
+    recent = [(t, g) for t, g in events_bac if t >= -lookback_hours]
+    if not recent:
+        return 0.0
+    grams = sum(max(0.0, g) for _, g in recent)
+    earliest = min(t for t, _ in recent)
+    span = max(1.0, -earliest)
+    return grams / span
+
+
+def _project_curve_with_rate(
+    events_bac: list[tuple[float, float]],
+    *,
+    grams_per_hour: float,
+    weight_lb: float,
+    is_male: bool,
+    horizon_hours: float,
+) -> list[dict[str, float]]:
+    projected = list(events_bac)
+    if grams_per_hour > 0 and horizon_hours > 0:
+        t = 0.0
+        while t < horizon_hours:
+            dt = min(0.5, horizon_hours - t)
+            projected.append((t, grams_per_hour * dt))
+            t += 0.5
+    curve = calculations.bac_curve(projected, weight_lb, is_male, step_hours=0.25, start_hours=-6.0, max_hours=24.0)
+    return [{"t": t, "bac": bac} for t, bac in curve]
+
+
+def _single_drink_projection(
+    events_bac: list[tuple[float, float]],
+    *,
+    at_hours: float,
+    weight_lb: float,
+    is_male: bool,
+) -> list[dict[str, float]]:
+    projected = list(events_bac) + [(at_hours, 14.0)]
+    curve = calculations.bac_curve(projected, weight_lb, is_male, step_hours=0.25, start_hours=-6.0, max_hours=24.0)
+    return [{"t": t, "bac": bac} for t, bac in curve]
+
+
+def _confidence_band(curve: list[tuple[float, float]], delta: float = 0.01) -> dict[str, list[dict[str, float]]]:
+    lower = [{"t": t, "bac": max(0.0, bac - delta)} for t, bac in curve]
+    upper = [{"t": t, "bac": max(0.0, bac + delta)} for t, bac in curve]
+    return {"lower": lower, "upper": upper}
+
+
+def _event_markers(events_bac: list[tuple[float, float]], *, weight_lb: float, is_male: bool) -> list[dict[str, float]]:
+    out: list[dict[str, float]] = []
+    for t, _ in events_bac:
+        out.append({"t": t, "bac": calculations.bac_at_time(t, events_bac, weight_lb, is_male)})
+    return out
+
+
+def _compare_curve_from_history(user_id: int, model: Session, base_curve: list[tuple[float, float]]) -> list[dict[str, float]]:
+    _ensure_auth_db()
+    payloads = list_recent_session_payloads(_auth_db_path(), user_id=user_id, limit=5)
+    if not payloads:
+        return []
+    sessions: list[Session] = []
+    for payload in payloads:
+        m = _session_from_cookie(payload)
+        if m is not None and m.events_bac:
+            sessions.append(m)
+    if not sessions:
+        return []
+    points: list[dict[str, float]] = []
+    for t, _ in base_curve:
+        vals = [calculations.bac_at_time(t, s.events_bac, s.weight_lb, s.is_male) for s in sessions]
+        if vals:
+            points.append({"t": t, "bac": round(sum(vals) / len(vals), 4)})
+    return points
 
 
 def get_session() -> Session | None:
@@ -918,6 +1023,44 @@ def api_state():
     maybe_create_threshold_alert(_auth_db_path(), user_id=user_id, bac_now=bac_now)
     one_more_events = list(model.events_bac) + [(0.0, 14.0)]
     bac_30_if_one_more = calculations.bac_at_time(0.5, one_more_events, model.weight_lb, model.is_male)
+    grams_per_hour = _estimate_rate_grams_per_hour(model.events_bac)
+    drinks_per_hour = grams_per_hour / 14.0 if grams_per_hour > 0 else 0.0
+    pace_curve = _project_curve_with_rate(
+        model.events_bac,
+        grams_per_hour=grams_per_hour,
+        weight_lb=model.weight_lb,
+        is_male=model.is_male,
+        horizon_hours=max(0.0, model.hours_until_sober_from_now()),
+    )
+    confidence = _confidence_band(curve)
+    markers = _event_markers(model.events_bac, weight_lb=model.weight_lb, is_male=model.is_male)
+    compare_curve = _compare_curve_from_history(user_id, model, curve)
+    what_if_one_now = _single_drink_projection(model.events_bac, at_hours=0.0, weight_lb=model.weight_lb, is_male=model.is_male)
+    what_if_one_in_1h = _single_drink_projection(model.events_bac, at_hours=1.0, weight_lb=model.weight_lb, is_male=model.is_male)
+
+    below_legal_time = None
+    if bac_now >= 0.08:
+        for t, bac in curve:
+            if t >= 0 and bac < 0.08:
+                below_legal_time = t
+                break
+
+    chart_data = {
+        "pace_drinks_per_hour": round(drinks_per_hour, 2),
+        "thresholds": [0.02, 0.05, 0.08, 0.10],
+        "event_markers": markers,
+        "confidence_band": confidence,
+        "pace_curve": pace_curve,
+        "compare_curve": compare_curve,
+        "what_if_curves": {
+            "one_now": what_if_one_now,
+            "one_in_1h": what_if_one_in_1h,
+        },
+        "eta": {
+            "below_legal_hours": below_legal_time,
+            "sober_hours": model.hours_until_sober_from_now(),
+        },
+    }
     pace_prediction = {
         "bac_in_30m_if_one_more_now": round(bac_30_if_one_more, 4),
         "recommendation": (
@@ -935,6 +1078,7 @@ def api_state():
         "bac_now": bac_now,
         "curve": [{"t": t, "bac": bac} for t, bac in curve],
         "hours_until_sober_from_now": model.hours_until_sober_from_now(),
+        "session_events": _session_events_payload(model),
         "drink_count": len(events),
         "total_calories": model.total_calories,
         "total_carbs_g": round(model.total_carbs_g, 1),
@@ -942,7 +1086,59 @@ def api_state():
         "hangover_plan": hangover_plan,
         "drive_advice": get_drive_advice(bac_now, model.hours_until_sober_from_now()),
         "pace_prediction": pace_prediction,
+        "chart_data": chart_data,
     })
+
+
+@app.route("/api/session/events", methods=["PATCH"])
+def api_session_events_patch():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    model = get_session()
+    if model is None:
+        return jsonify({"error": "No active session"}), 400
+
+    data = request.get_json() or {}
+    try:
+        index = int(data.get("index"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid index is required"}), 400
+
+    events = list(model.events_full)
+    if index < 0 or index >= len(events):
+        return jsonify({"error": "Event not found"}), 404
+
+    if bool(data.get("delete")):
+        events.pop(index)
+        next_model = _rebuild_model_from_events(model, events)
+        set_session(next_model)
+        if events:
+            _record_auto_session(user_id, next_model, touch_last_event=False)
+        return jsonify({"ok": True, "events": _session_events_payload(next_model)})
+
+    try:
+        hours_ago = float(data.get("hours_ago"))
+        standard_drinks = float(data.get("standard_drinks"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "hours_ago and standard_drinks are required"}), 400
+    hours_ago = max(0.0, min(MAX_HOURS_AGO, hours_ago))
+    standard_drinks = max(MIN_COUNT, min(MAX_COUNT, standard_drinks))
+
+    old_t, old_grams, old_cal, old_carbs, old_sugar = events[index]
+    new_grams = standard_drinks * 14.0
+    ratio = (new_grams / old_grams) if old_grams > 0 else 1.0
+    events[index] = (
+        -hours_ago,
+        new_grams,
+        int(round(old_cal * ratio)),
+        float(old_carbs) * ratio,
+        float(old_sugar) * ratio,
+    )
+    next_model = _rebuild_model_from_events(model, events)
+    set_session(next_model)
+    _record_auto_session(user_id, next_model, touch_last_event=False)
+    return jsonify({"ok": True, "events": _session_events_payload(next_model)})
 
 
 @app.route("/api/hangover-plan")

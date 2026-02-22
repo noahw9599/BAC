@@ -800,6 +800,30 @@ def get_user_session_payload(db_path: str, *, user_id: int, session_id: int) -> 
         return None
 
 
+def list_recent_session_payloads(db_path: str, *, user_id: int, limit: int = 5) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT payload_json
+            FROM saved_sessions
+            WHERE user_id = ? AND COALESCE(is_active, 0) = 0
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, max(1, min(limit, 20))),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            out.append(payload)
+    return out
+
+
 def track_favorite_drink(db_path: str, *, user_id: int, catalog_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute(

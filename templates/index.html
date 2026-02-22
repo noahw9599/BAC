@@ -21,7 +21,7 @@
     </header>
 
     <nav class="app-tabs" aria-label="Main tabs">
-      <button type="button" class="tab-btn active" data-tab="current">Now</button>
+      <button type="button" class="tab-btn active" data-tab="current">Live Track</button>
       <button type="button" class="tab-btn" data-tab="history">History</button>
       <button type="button" class="tab-btn" data-tab="social">Social</button>
       <button type="button" class="tab-btn" data-tab="account">Account</button>
@@ -74,7 +74,7 @@
 
         <div class="stats" id="stats">
           <div class="stat"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
-          <div class="stat"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober in</span></div>
+          <div class="stat"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
           <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
           <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
           <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
@@ -85,12 +85,25 @@
           <div class="chart-head">
             <h3>BAC trend</h3>
             <p class="mini-help">Watch your curve, legal-limit line, and timing estimates.</p>
+            <p class="mini-help" id="chart-pace-metric">Pace: -- drinks/hr</p>
+          </div>
+          <div class="friend-actions">
+            <button type="button" class="chip active chart-mode" data-mode="full">Full night</button>
+            <button type="button" class="chip chart-mode" data-mode="last6">Last 6h</button>
+            <button type="button" class="chip chart-mode" data-mode="untilSober">Until sober</button>
+            <button type="button" class="chip" id="btn-chart-compare">Compare last 5</button>
+          </div>
+          <div class="friend-actions">
+            <button type="button" class="chip whatif-btn active" data-whatif="none">Current</button>
+            <button type="button" class="chip whatif-btn" data-whatif="one_now">+1 drink now</button>
+            <button type="button" class="chip whatif-btn" data-whatif="one_in_1h">+1 in 1h</button>
           </div>
           <div class="chart-insights" id="chart-insights">
             <div class="mini-card"><p class="mini-title">Peak BAC</p><p class="mini-value" id="peak-bac">0.000</p></div>
             <div class="mini-card"><p class="mini-title">Below 0.08 in</p><p class="mini-value" id="below-legal-in">-</p></div>
             <div class="mini-card"><p class="mini-title">Risk zone now</p><p class="mini-value" id="risk-zone">None</p></div>
           </div>
+          <p class="mini-help" id="chart-timeline-hints"></p>
           <div class="chart-wrap chart-wrap-large"><canvas id="bac-chart" aria-label="BAC over time"></canvas></div>
         </div>
 
@@ -162,6 +175,13 @@
 
         <button type="button" class="btn btn-secondary btn-block" id="btn-reset">Clear all drinks</button>
         <button type="button" class="btn btn-primary btn-block" id="btn-share-app">Share app with friends</button>
+        <details class="accordion card-lite">
+          <summary>Logged drinks</summary>
+          <div class="accordion-body">
+            <p class="mini-help">Review your entries. You can edit time/drink count or remove an entry.</p>
+            <div id="session-events-list" class="friend-list"></div>
+          </div>
+        </details>
       </section>
     </section>
 

@@ -500,3 +500,24 @@ def test_auto_session_expires_and_moves_to_history(client):
     assert len(items) == 1
     assert items[0]["is_auto"] is True
     assert items[0]["is_active"] is False
+
+
+def test_session_event_edit_and_delete(client):
+    register(client, email="edit-events@example.edu", name="EditEvents")
+    client.post("/api/setup", json={"weight_lb": 170, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 1})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+
+    state = client.get("/api/state").get_json()
+    assert len(state["session_events"]) == 2
+
+    edit = client.patch("/api/session/events", json={"index": 0, "hours_ago": 2, "standard_drinks": 2})
+    assert edit.status_code == 200
+    edited_state = client.get("/api/state").get_json()
+    assert len(edited_state["session_events"]) == 2
+    assert edited_state["session_events"][0]["standard_drinks"] == 2.0
+
+    delete = client.patch("/api/session/events", json={"index": 1, "delete": True})
+    assert delete.status_code == 200
+    final_state = client.get("/api/state").get_json()
+    assert len(final_state["session_events"]) == 1

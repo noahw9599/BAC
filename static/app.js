@@ -28,6 +28,7 @@ const API = {
   campusPresets: "/api/campus/presets",
   socialPrivacyRevokeAll: "/api/social/privacy/revoke-all",
   sessionDebrief: "/api/session/debrief",
+  sessionEvents: "/api/session/events",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -60,6 +61,9 @@ let campusPresets = [];
 let latestState = null;
 let showAllSocialAlerts = false;
 let attemptedAutoSetup = false;
+let chartMode = "full";
+let chartCompareEnabled = false;
+let chartWhatIf = "none";
 
 function $(id) {
   return document.getElementById(id);
@@ -999,6 +1003,66 @@ function formatHoursShort(hours) {
   return `${h}h ${m}m`;
 }
 
+function formatSoberAt(hoursFromNow) {
+  if (hoursFromNow == null || !Number.isFinite(hoursFromNow)) return "-";
+  const now = new Date();
+  const at = new Date(now.getTime() + Math.max(0, hoursFromNow) * 36e5);
+  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sameDay = now.toDateString() === at.toDateString();
+  if (sameDay) return `Today ${time}`;
+  const date = at.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${date} ${time}`;
+}
+
+function renderSessionEvents(state) {
+  const list = $("session-events-list");
+  if (!list) return;
+  const items = Array.isArray(state?.session_events) ? state.session_events : [];
+  list.innerHTML = "";
+  if (!items.length) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No drinks logged yet.</div></div>`;
+    return;
+  }
+  items.forEach((ev) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">Entry #${ev.index + 1}</div>
+      <div class="friend-counts">~${Number(ev.standard_drinks || 0).toFixed(2)} drinks, ${Number(ev.hours_ago || 0).toFixed(2)}h ago</div>
+      <div class="friend-add">
+        <input type="number" min="0" max="24" step="0.25" class="session-event-hours" data-index="${ev.index}" value="${Number(ev.hours_ago || 0).toFixed(2)}" aria-label="Hours ago">
+        <input type="number" min="0.25" max="20" step="0.25" class="session-event-count" data-index="${ev.index}" value="${Number(ev.standard_drinks || 1).toFixed(2)}" aria-label="Standard drinks">
+      </div>
+      <div class="friend-actions">
+        <button type="button" class="chip session-event-save" data-index="${ev.index}">Save</button>
+        <button type="button" class="chip danger session-event-delete" data-index="${ev.index}">Delete</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function saveSessionEvent(index) {
+  const hoursEl = document.querySelector(`.session-event-hours[data-index="${index}"]`);
+  const countEl = document.querySelector(`.session-event-count[data-index="${index}"]`);
+  const hours_ago = parseFloat(hoursEl?.value || "");
+  const standard_drinks = parseFloat(countEl?.value || "");
+  if (!Number.isFinite(hours_ago) || !Number.isFinite(standard_drinks)) return;
+  await fetchJSON(API.sessionEvents, {
+    method: "PATCH",
+    body: JSON.stringify({ index: Number(index), hours_ago, standard_drinks }),
+  });
+  await refreshState();
+}
+
+async function deleteSessionEvent(index) {
+  await fetchJSON(API.sessionEvents, {
+    method: "PATCH",
+    body: JSON.stringify({ index: Number(index), delete: true }),
+  });
+  await refreshState();
+}
+
 async function loadCampusPresets() {
   try {
     const data = await fetchJSON(API.campusPresets);
@@ -1166,6 +1230,18 @@ function updateChartInsights(state) {
   else if (bac >= 0.05) riskEl.textContent = "Elevated";
   else if (bac >= 0.02) riskEl.textContent = "Low";
   else riskEl.textContent = "Minimal";
+
+  const hints = $("chart-timeline-hints");
+  const paceEl = $("chart-pace-metric");
+  const pace = state?.chart_data?.pace_drinks_per_hour;
+  if (paceEl) paceEl.textContent = `Pace: ${Number(pace || 0).toFixed(2)} drinks/hr (last 3h)`;
+  const eta = state?.chart_data?.eta || {};
+  if (hints) {
+    const legal = eta.below_legal_hours == null ? "Below 0.08: now/already low" : `Below 0.08 in ~${formatHoursShort(eta.below_legal_hours)}`;
+    const sober = eta.sober_hours == null ? "Sober ETA unavailable" : `Sober in ~${formatHoursShort(eta.sober_hours)}`;
+    const safety = (state.bac_now || 0) >= 0.08 ? "Ride support likely needed now." : "Recovery window improving.";
+    hints.textContent = `${legal} | ${sober} | ${safety}`;
+  }
 }
 
 function updatePacePrediction(state) {
@@ -1177,6 +1253,190 @@ function updatePacePrediction(state) {
     return;
   }
   el.textContent = `If you have one more drink now, estimated BAC in 30m: ${Number(p.bac_in_30m_if_one_more_now || 0).toFixed(3)}. ${p.recommendation || ""}`;
+}
+
+function getChartCurveByMode(state) {
+  const base = Array.isArray(state?.curve) ? state.curve : [];
+  if (!base.length) return [];
+  if (chartMode === "last6") return base.filter((p) => (p.t ?? 999) >= -6);
+  if (chartMode === "untilSober") {
+    let cutoff = state?.hours_until_sober_from_now ?? 24;
+    cutoff = Math.max(0, Math.min(24, cutoff));
+    return base.filter((p) => (p.t ?? -999) <= cutoff);
+  }
+  return base;
+}
+
+function bandLabel(bac) {
+  if (bac >= 0.1) return "Very high";
+  if (bac >= 0.08) return "Over legal limit";
+  if (bac >= 0.05) return "Elevated";
+  if (bac >= 0.02) return "Low";
+  return "Minimal";
+}
+
+function renderChart(state) {
+  const curve = getChartCurveByMode(state);
+  if (!curve.length) {
+    if (bacChart) {
+      bacChart.data.datasets = [];
+      bacChart.update("none");
+    }
+    return;
+  }
+  const basePoints = curve.map((d) => ({ x: d.t, y: d.bac }));
+  const lowerBand = (state.chart_data?.confidence_band?.lower || [])
+    .filter((p) => basePoints.some((x) => Number(x.x) === Number(p.t)))
+    .map((p) => ({ x: p.t, y: p.bac }));
+  const upperBand = (state.chart_data?.confidence_band?.upper || [])
+    .filter((p) => basePoints.some((x) => Number(x.x) === Number(p.t)))
+    .map((p) => ({ x: p.t, y: p.bac }));
+  const pacePoints = (state.chart_data?.pace_curve || []).map((p) => ({ x: p.t, y: p.bac }));
+  const comparePoints = (state.chart_data?.compare_curve || []).map((p) => ({ x: p.t, y: p.bac }));
+  const whatIfRaw = chartWhatIf === "one_now" ? state.chart_data?.what_if_curves?.one_now : chartWhatIf === "one_in_1h" ? state.chart_data?.what_if_curves?.one_in_1h : [];
+  const whatIfPoints = (whatIfRaw || []).map((p) => ({ x: p.t, y: p.bac }));
+  const markers = (state.chart_data?.event_markers || []).map((p) => ({ x: p.t, y: p.bac }));
+
+  const thresholds = (state.chart_data?.thresholds || [0.02, 0.05, 0.08, 0.1]).map((thr) => ({
+    label: `${thr.toFixed(2)} line`,
+    data: [{ x: -6, y: thr }, { x: 24, y: thr }],
+    borderColor: thr === 0.08 ? "#ef4444" : "rgba(148,163,184,0.45)",
+    borderDash: thr === 0.08 ? [6, 4] : [3, 4],
+    pointRadius: 0,
+    borderWidth: thr === 0.08 ? 2 : 1,
+    fill: false,
+    tension: 0,
+  }));
+
+  const datasets = [
+    {
+      label: "Confidence lower",
+      data: lowerBand,
+      borderColor: "rgba(56,189,248,0)",
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+    },
+    {
+      label: "Current BAC",
+      data: basePoints,
+      borderColor: "#38bdf8",
+      backgroundColor: "rgba(56, 189, 248, 0.15)",
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+      borderWidth: 2.2,
+    },
+    {
+      label: "Confidence range",
+      data: upperBand,
+      borderColor: "rgba(56,189,248,0)",
+      backgroundColor: "rgba(56,189,248,0.14)",
+      pointRadius: 0,
+      fill: "-2",
+      tension: 0.2,
+    },
+    {
+      label: "Pace projection",
+      data: pacePoints,
+      borderColor: "rgba(251,191,36,0.95)",
+      borderDash: [5, 4],
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+      borderWidth: 1.8,
+    },
+    ...thresholds,
+    {
+      type: "scatter",
+      label: "Drink events",
+      data: markers,
+      backgroundColor: "#93c5fd",
+      borderColor: "#0f172a",
+      pointRadius: 4,
+      pointHoverRadius: 5,
+    },
+  ];
+
+  if (chartCompareEnabled && comparePoints.length) {
+    datasets.push({
+      label: "Avg of last 5 sessions",
+      data: comparePoints,
+      borderColor: "rgba(16,185,129,0.95)",
+      borderDash: [2, 3],
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+      borderWidth: 1.8,
+    });
+  }
+  if (whatIfPoints.length) {
+    datasets.push({
+      label: chartWhatIf === "one_now" ? "What-if: +1 now" : "What-if: +1 in 1h",
+      data: whatIfPoints,
+      borderColor: "rgba(248,113,113,0.95)",
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+      borderWidth: 2,
+    });
+  }
+  datasets.push({
+    label: "Now marker",
+    data: [{ x: 0, y: 0 }, { x: 0, y: 0.22 }],
+    borderColor: "rgba(255,255,255,0.55)",
+    borderDash: [2, 4],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+    borderWidth: 1.2,
+  });
+
+  const ctx = document.getElementById("bac-chart")?.getContext("2d");
+  if (!ctx) return;
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: false,
+    scales: {
+      x: {
+        type: "linear",
+        min: Math.min(...basePoints.map((p) => p.x), -6),
+        max: Math.max(...basePoints.map((p) => p.x), 8),
+        title: { display: true, text: "Hours (0 = now)" },
+        grid: { color: "rgba(255,255,255,0.06)" },
+        ticks: { color: "#94a3b8" },
+      },
+      y: {
+        min: 0,
+        max: 0.22,
+        title: { display: true, text: "BAC (%)" },
+        grid: { color: "rgba(255,255,255,0.06)" },
+        ticks: { color: "#94a3b8" },
+      },
+    },
+    plugins: {
+      legend: { labels: { color: "#f1f5f9" } },
+      tooltip: {
+        callbacks: {
+          label: (ctxTip) => {
+            const y = Number(ctxTip.parsed.y || 0);
+            const x = Number(ctxTip.parsed.x || 0);
+            const advice = y >= 0.08 ? "Do not drive" : y >= 0.05 ? "Caution" : "Lower risk";
+            return `${ctxTip.dataset.label}: BAC ${y.toFixed(3)} at ${x.toFixed(2)}h | ${bandLabel(y)} | ${advice}`;
+          },
+        },
+      },
+    },
+  };
+
+  if (bacChart) {
+    bacChart.data.datasets = datasets;
+    bacChart.options = options;
+    bacChart.update("none");
+  } else {
+    bacChart = new Chart(ctx, { type: "line", data: { datasets }, options });
+  }
 }
 
 function setupShareButton() {
@@ -1475,7 +1735,7 @@ async function refreshState() {
   }
 
   const soberEl = document.querySelector("#sober-in");
-  if (soberEl) soberEl.textContent = state.configured ? state.hours_until_sober_from_now.toFixed(1) + "h" : "-";
+  if (soberEl) soberEl.textContent = state.configured ? formatSoberAt(state.hours_until_sober_from_now) : "-";
 
   const countEl = $("drinks-logged");
   if (countEl) countEl.textContent = state.drink_count ?? 0;
@@ -1493,6 +1753,7 @@ async function refreshState() {
   updateDriveAdvice(state);
   updateChartInsights(state);
   updatePacePrediction(state);
+  renderSessionEvents(state);
 
   const hangoverResult = $("hangover-result");
   const riskEl = $("hangover-risk");
@@ -1510,64 +1771,9 @@ async function refreshState() {
   }
 
   if (state.curve && state.curve.length) {
-    const labels = state.curve.map((d) => d.t.toFixed(1));
-    const data = state.curve.map((d) => d.bac);
-    const legalLine = 0.08;
-
-    if (bacChart) {
-      bacChart.data.labels = labels;
-      bacChart.data.datasets[0].data = data;
-      bacChart.update("none");
-    } else {
-      const ctx = document.getElementById("bac-chart")?.getContext("2d");
-      if (ctx) {
-        bacChart = new Chart(ctx, {
-          type: "line",
-          data: {
-            labels,
-            datasets: [
-              {
-                label: "BAC (%)",
-                data,
-                borderColor: "#38bdf8",
-                backgroundColor: "rgba(56, 189, 248, 0.15)",
-                fill: true,
-                tension: 0.2,
-              },
-              {
-                label: "0.08% limit",
-                data: labels.map(() => legalLine),
-                borderColor: "#ef4444",
-                borderDash: [6, 4],
-                fill: false,
-                pointRadius: 0,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              x: {
-                title: { display: true, text: "Hours (0 = now)" },
-                grid: { color: "rgba(255,255,255,0.06)" },
-                ticks: { color: "#94a3b8", maxTicksLimit: 12 },
-              },
-              y: {
-                min: 0,
-                title: { display: true, text: "BAC (%)" },
-                grid: { color: "rgba(255,255,255,0.06)" },
-                ticks: { color: "#94a3b8" },
-              },
-            },
-            plugins: { legend: { labels: { color: "#f1f5f9" } } },
-          },
-        });
-      }
-    }
+    renderChart(state);
   } else if (bacChart) {
-    bacChart.data.labels = [];
-    bacChart.data.datasets[0].data = [];
+    bacChart.data.datasets = [];
     bacChart.update("none");
   }
 }
@@ -1808,6 +2014,48 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-social-toggle-alerts")?.addEventListener("click", () => {
     showAllSocialAlerts = !showAllSocialAlerts;
     renderGroupSnapshot();
+  });
+  document.querySelectorAll(".chart-mode").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      document.querySelectorAll(".chart-mode").forEach((x) => x.classList.remove("active"));
+      btn.classList.add("active");
+      chartMode = btn.dataset.mode || "full";
+      if (latestState) renderChart(latestState);
+    });
+  });
+  $("btn-chart-compare")?.addEventListener("click", () => {
+    chartCompareEnabled = !chartCompareEnabled;
+    $("btn-chart-compare").classList.toggle("active", chartCompareEnabled);
+    if (latestState) renderChart(latestState);
+  });
+  document.querySelectorAll(".whatif-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".whatif-btn").forEach((x) => x.classList.remove("active"));
+      btn.classList.add("active");
+      chartWhatIf = btn.dataset.whatif || "none";
+      if (latestState) renderChart(latestState);
+    });
+  });
+  $("session-events-list")?.addEventListener("click", async (e) => {
+    const saveBtn = e.target.closest(".session-event-save");
+    if (saveBtn) {
+      try {
+        await saveSessionEvent(saveBtn.dataset.index);
+      } catch (err) {
+        setSessionStatus(`Update failed: ${err.message}`);
+      }
+      return;
+    }
+    const delBtn = e.target.closest(".session-event-delete");
+    if (delBtn) {
+      const ok = window.confirm("Delete this drink entry?");
+      if (!ok) return;
+      try {
+        await deleteSessionEvent(delBtn.dataset.index);
+      } catch (err) {
+        setSessionStatus(`Delete failed: ${err.message}`);
+      }
+    }
   });
 
   // Keep current session state fresh so auto-save and expiry rules run even when user is idle.
