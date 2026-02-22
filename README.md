@@ -1,59 +1,116 @@
 # BAC Tracker Web
 
-A production-style Flask app for estimating blood alcohol concentration (BAC) using a Widmark-based model.
+Mobile-first BAC tracking web app focused on real-time safety decisions, session analytics, and group coordination.
 
-This project is designed to demonstrate:
-- clean backend API design
-- modular domain logic (`bac_app/`)
-- test coverage with `pytest`
-- a practical frontend for real-time tracking and planning
+Built as an internship portfolio project to demonstrate:
+- end-to-end product ownership (backend + frontend + deployment)
+- practical system design for stateful user workflows
+- disciplined testing and iterative feature delivery
 
-Important: this is an educational estimator, not a medical device or legal tool. Never drive after drinking.
+Important: this is an educational estimator, not a legal or medical device. Never drive after drinking.
 
-## Features
+## What Makes This Project Strong
 
-- BAC estimation from weight, sex, drink type, count, and timing
-- Drink catalog with calories, carbs, and sugar
-- BAC chart over time (Chart.js)
-- "Need to be sharp" planner with stop-by guidance
-- Night tools: hydration tracker and pace coach
-- Local social tracking: friend group drink/water counters
-- Installable mobile web app (PWA) with offline shell caching
-- Per-user session isolation (safe for multi-user public testing)
-- Account system (register/login/logout) with per-user saved sessions
-- Persistent feedback API and admin feedback feed
-- Social safety tab with group invite codes, friend network, and opt-in live sharing
-- Guardian view links for read-only family/friend safety monitoring and alerts
+- Production-style Flask API with clear route boundaries
+- Persistent account system (email/password auth)
+- Session lifecycle model with auto-save + expiration rules
+- Pace-aware planner logic (not just static rules)
+- Social safety features (groups, alerts, guardian links, friend network)
+- Mobile-focused UX with tabbed navigation and collapsible sections
+- Meaningful automated coverage with `pytest`
+
+## Core Features
+
+### Real-Time BAC Tracking
+- BAC curve using Widmark-style modeling
+- Drink catalog (calories, carbs, sugar)
+- Live BAC chart + legal-limit overlay
+- Drive-risk guidance messaging
+
+### Smart Planner
+- "Need to be sharp" planning based on target date/time
+- Pace-aware stop-by recommendation that updates as drinks are logged
+- Debrief endpoint for post-session suggestions
+
+### Session Lifecycle
+- Auto-start on first drink
+- Auto-save after drink events and periodic refresh
+- Auto-expire active session after:
+  - 3 hours inactivity, or
+  - 12 hours max active duration
+- History view for closed sessions
+- Optional manual named saves and reload
+
+### Social Safety
+- Friend requests by email or username
+- Invite links for one-tap friend add (`?invite=<code>`)
+- Group creation/join via invite codes
+- Group member check actions (`check`, `water`, `ride`)
+- Group alerts including threshold alerts for high BAC
+- Guardian read-only links with optional browser notifications
+- Privacy kill-switch to revoke all sharing
+
+### Mobile Web App
+- PWA install support (iOS/Android)
+- Sticky bottom tab nav
+- Touch-friendly controls and condensed mobile layout
 
 ## Tech Stack
 
 - Python 3.10+
 - Flask 3
+- SQLite
 - Vanilla JavaScript + Chart.js
 - Pytest
 - Gunicorn (deployment)
+
+## Architecture (High Level)
+
+```text
+Browser (PWA UI)
+  -> static/app.js (state + UI orchestration)
+  -> Flask routes in app.py
+       -> bac_app/session.py       (current-session modeling)
+       -> bac_app/calculations.py  (BAC math)
+       -> bac_app/hangover.py      (planner logic)
+       -> bac_app/auth_store.py    (auth, sessions, social persistence)
+       -> bac_app/catalog.py       (drink metadata)
+  -> SQLite (users, sessions, social graph, alerts, guardian links)
+```
 
 ## Project Structure
 
 ```text
 bac_tracker_web/
-  app.py                  # Flask routes and API handlers
+  app.py
   bac_app/
-    calculations.py       # BAC model and curve generation
-    session.py            # session state + drink event operations
-    catalog.py            # drink catalog + nutrition metadata
-    drinks.py             # base drink definitions and conversion helpers
-    hangover.py           # stop-by and risk guidance logic
-    graph.py              # graph helper for optional static image export
+    auth_store.py
+    calculations.py
+    session.py
+    hangover.py
+    catalog.py
+    drinks.py
   templates/
-    index.html            # app UI shell
+    index.html
+    guardian.html
   static/
-    app.js                # frontend interactions and API integration
-    style.css             # styling
+    app.js
+    style.css
+    manifest.webmanifest
+    sw.js
   tests/
-    test_bac.py           # core math/session tests
-    test_api.py           # API behavior tests
+    test_api.py
+    test_bac.py
 ```
+
+## Quick Demo (60 Seconds)
+
+1. Register account (name/email/password/gender/weight)
+2. Add a few drinks on `Now`
+3. Set a target time in "Need to be sharp"
+4. Open `Social` and create a group
+5. Create a guardian link and open it in a new tab
+6. Check `History` and verify session behavior
 
 ## Local Development
 
@@ -67,69 +124,49 @@ python app.py
 
 Open `http://127.0.0.1:5000`.
 
-## Running Tests
+## Test Commands
 
 ```powershell
 python -m pytest -q
 ```
 
-If your local machine has a top-level folder named `code/`, run:
+If your machine has a top-level `code/` folder:
 
 ```powershell
 python -m pytest -q -p no:debugging
 ```
 
-## API Endpoints
+## API Highlights
 
-- `GET /healthz`
-- `GET /api/catalog`
-- `POST /api/setup`
-- `POST /api/drink`
-- `GET /api/state`
-- `GET /api/hangover-plan`
-- `POST /api/reset`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `POST /api/session/save`
-- `GET /api/session/list`
-- `GET /api/session/list?date=YYYY-MM-DD`
-- `GET /api/session/dates`
-- `POST /api/session/load`
-- `POST /api/feedback`
-- `GET /api/feedback/recent?token=...` (admin)
+- Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
+- Tracking: `/api/setup`, `/api/drink`, `/api/state`, `/api/reset`
+- Sessions: `/api/session/save`, `/api/session/list`, `/api/session/dates`, `/api/session/load`, `/api/session/debrief`
+- Social:
+  - `/api/social/status`, `/api/social/feed`
+  - `/api/social/request`, `/api/social/request/respond`
+  - `/api/social/user-lookup`, `/api/social/invite/accept`
+  - `/api/social/groups/*`, `/api/guardian/<token>`
+- Safety utilities: `/api/campus/presets`, `/api/social/privacy/revoke-all`
 
 ## Deployment (Render)
 
-This repo includes `render.yaml` for one-click deployment.
+`render.yaml` is included for blueprint deployment.
 
-1. Push to GitHub.
-2. In Render, choose `New +` -> `Blueprint`.
-3. Select this repo and deploy.
-4. After deploy, open the generated URL and share it.
-5. View tester feedback via:
-   `https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
+1. Push `main` to GitHub
+2. In Render: `New +` -> `Blueprint`
+3. Select this repo
+4. Deploy
 
-User account data and saved BAC sessions are stored in SQLite on a mounted Render disk (`/var/data`).
+For feedback feed:
 
-Manual start command (if not using blueprint):
+`https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
 
-```bash
-gunicorn -w 2 -b 0.0.0.0:$PORT app:app
-```
+## Safety + Scope Notes
 
-## Mobile/PWA Notes
-
-- On iPhone: open the deployed link in Safari, then `Share` -> `Add to Home Screen`.
-- On Android: open in Chrome and tap `Install app` when prompted.
-
-## Safety and Scope
-
-- BAC varies by person, food intake, hydration, medications, and many other factors.
-- This tool can under- or over-estimate real BAC.
-- Use it for awareness only.
+- Real BAC varies by many factors not fully modeled here.
+- Results should be treated as conservative awareness guidance only.
+- Never use this app as legal proof that driving is safe.
 
 ## License
 
-MIT (see `LICENSE`).
+MIT (see `LICENSE`)
