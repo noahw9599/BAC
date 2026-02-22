@@ -17,12 +17,17 @@ const API = {
   socialStatus: "/api/social/status",
   socialShare: "/api/social/share",
   socialRequest: "/api/social/request",
+  socialLookup: "/api/social/user-lookup",
+  socialInviteAccept: "/api/social/invite/accept",
   socialRespond: "/api/social/request/respond",
   socialFeed: "/api/social/feed",
   socialGroups: "/api/social/groups",
   socialGroupCreate: "/api/social/groups/create",
   socialGroupJoin: "/api/social/groups/join",
   guardianBase: "/api/social/groups",
+  campusPresets: "/api/campus/presets",
+  socialPrivacyRevokeAll: "/api/social/privacy/revoke-all",
+  sessionDebrief: "/api/session/debrief",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -32,6 +37,7 @@ const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
 const STORAGE_FRIENDS = "drinking-buddy-friends";
 const STORAGE_TARGET_DATE = "drinking-buddy-target-date";
 const STORAGE_TARGET_TIME = "drinking-buddy-target-time";
+const STORAGE_PENDING_INVITE = "drinking-buddy-pending-invite";
 const MAX_FAVORITES = 6;
 const MAX_FRIENDS = 12;
 
@@ -50,6 +56,10 @@ let socialGroups = [];
 let activeGroupId = null;
 let activeGroupSnapshot = null;
 let guardianLinks = [];
+let campusPresets = [];
+let latestState = null;
+let showAllSocialAlerts = false;
+let attemptedAutoSetup = false;
 
 function $(id) {
   return document.getElementById(id);
@@ -133,6 +143,7 @@ function setAuthUI(authenticated, user = null) {
 
   const label = user?.display_name || user?.email || "user";
   setAuthStatus(`Signed in as ${label}`);
+  if (setup) setup.style.display = "none";
   if (user?.default_weight_lb && $("weight")) {
     $("weight").value = Math.round(user.default_weight_lb);
   }
@@ -141,13 +152,28 @@ function setAuthUI(authenticated, user = null) {
   }
 }
 
+function renderMyFriendProfile() {
+  const el = $("my-friend-profile");
+  if (!el) return;
+  if (!currentUser) {
+    el.textContent = "";
+    return;
+  }
+  const username = currentUser.username ? `@${currentUser.username}` : "(auto-assigned)";
+  const inviteLink = currentUser.invite_code ? `${window.location.origin}/?invite=${encodeURIComponent(currentUser.invite_code)}` : "";
+  el.textContent = `Your username: ${username}${inviteLink ? ` | Invite link: ${inviteLink}` : ""}`;
+}
+
 async function refreshAuth() {
   try {
     const data = await fetchJSON(API.authMe);
     currentUser = data.authenticated ? data.user : null;
     serverFavorites = [];
     setAuthUI(Boolean(currentUser), currentUser);
+    renderMyFriendProfile();
     if (currentUser) {
+      attemptedAutoSetup = false;
+      await processPendingInviteCode();
       await loadServerFavorites();
       await loadSavedSessions();
       await loadSocial();
@@ -157,6 +183,7 @@ async function refreshAuth() {
     currentUser = null;
     serverFavorites = [];
     setAuthUI(false);
+    renderMyFriendProfile();
   }
 }
 
@@ -272,7 +299,14 @@ function renderGroupSnapshot() {
     return;
   }
 
-  activeGroupSnapshot.members.forEach((m) => {
+  const me = activeGroupSnapshot.members.find((m) => m.user_id === currentUser?.id);
+  const elevatedView = me && ["owner", "mod", "dd"].includes(me.role);
+  const members = [...activeGroupSnapshot.members];
+  if (elevatedView) {
+    members.sort((a, b) => (b.bac_now || 0) - (a.bac_now || 0));
+  }
+
+  members.forEach((m) => {
     const bac = m.bac_now == null ? "hidden" : Number(m.bac_now).toFixed(3);
     const drinks = m.drink_count == null ? "hidden" : m.drink_count;
     const loc = m.location_note || "-";
@@ -293,15 +327,29 @@ function renderGroupSnapshot() {
   if (!activeGroupSnapshot.alerts.length) {
     alertsList.innerHTML = `<div class="friend-row"><div class="friend-counts">No alerts yet.</div></div>`;
   } else {
-    activeGroupSnapshot.alerts.forEach((a) => {
+    const allAlerts = [...activeGroupSnapshot.alerts];
+    const alertsToRender = showAllSocialAlerts ? allAlerts : allAlerts.slice(0, 3);
+    alertsToRender.forEach((a) => {
       const row = document.createElement("div");
       row.className = "friend-row";
       row.innerHTML = `<div class="friend-main">${a.alert_type.toUpperCase()}</div><div class="friend-counts">${a.message} | ${a.created_at}</div>`;
       alertsList.appendChild(row);
     });
+    if (!showAllSocialAlerts && allAlerts.length > 3) {
+      const row = document.createElement("div");
+      row.className = "friend-row";
+      row.innerHTML = `<div class="friend-counts">${allAlerts.length - 3} more alerts hidden.</div>`;
+      alertsList.appendChild(row);
+    }
+  }
+  const toggleBtn = $("btn-social-toggle-alerts");
+  if (toggleBtn) {
+    toggleBtn.textContent = showAllSocialAlerts ? "Show fewer alerts" : "Show all alerts";
+    toggleBtn.style.display = activeGroupSnapshot.alerts.length > 3 ? "inline-block" : "none";
   }
   renderSocialStatus();
   renderGuardianLinks();
+  updateOnboardingStatus();
 }
 
 function renderGuardianLinks() {
@@ -364,6 +412,7 @@ async function loadSocial() {
       guardianLinks = [];
       renderGroupSnapshot();
     }
+    updateOnboardingStatus();
   } catch (_) {
     socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
     socialGroups = [];
@@ -374,6 +423,7 @@ async function loadSocial() {
     renderSocialFeed([]);
     renderGroupList();
     renderGroupSnapshot();
+    updateOnboardingStatus();
   }
 }
 
@@ -390,19 +440,36 @@ async function toggleSocialShare() {
 }
 
 async function sendSocialFriendRequest() {
-  const email = $("social-friend-email")?.value?.trim() || "";
+  const raw = $("social-friend-email")?.value?.trim() || "";
   const status = $("social-request-status");
-  if (!email) {
-    if (status) status.textContent = "Enter an email first.";
+  if (!raw) {
+    if (status) status.textContent = "Enter an email or username first.";
     return;
   }
+  const payload = raw.includes("@") ? { email: raw.toLowerCase() } : { username: raw.toLowerCase().replace(/^@/, "") };
   try {
-    await fetchJSON(API.socialRequest, { method: "POST", body: JSON.stringify({ email }) });
+    await fetchJSON(API.socialRequest, { method: "POST", body: JSON.stringify(payload) });
     if ($("social-friend-email")) $("social-friend-email").value = "";
     if (status) status.textContent = "Request sent.";
     await loadSocial();
   } catch (err) {
     if (status) status.textContent = err.message;
+  }
+}
+
+async function lookupSocialUser() {
+  const username = ($("social-lookup-username")?.value?.trim() || "").toLowerCase().replace(/^@/, "");
+  const out = $("social-lookup-result");
+  if (!username) {
+    if (out) out.textContent = "Enter a username first.";
+    return;
+  }
+  try {
+    const found = await fetchJSON(`${API.socialLookup}?username=${encodeURIComponent(username)}`);
+    if (out) out.textContent = `Found: ${found.user.display_name} (@${found.user.username}).`;
+    if ($("social-friend-email")) $("social-friend-email").value = found.user.username;
+  } catch (err) {
+    if (out) out.textContent = err.message;
   }
 }
 
@@ -527,6 +594,7 @@ function getLoginPayload() {
 function getRegisterPayload() {
   return {
     display_name: $("auth-register-name")?.value?.trim() || "",
+    username: $("auth-register-username")?.value?.trim().toLowerCase() || "",
     email: $("auth-register-email")?.value?.trim() || "",
     password: $("auth-register-password")?.value?.trim() || "",
     gender: $("auth-register-gender")?.value || "",
@@ -550,6 +618,61 @@ async function authLogout() {
   await fetchJSON(API.authLogout, { method: "POST" });
   currentUser = null;
   setAuthUI(false);
+  renderMyFriendProfile();
+}
+
+function pullInviteCodeFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const invite = (url.searchParams.get("invite") || "").trim().toUpperCase();
+    if (!invite) return;
+    localStorage.setItem(STORAGE_PENDING_INVITE, invite);
+    url.searchParams.delete("invite");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch (_) {}
+}
+
+function getPendingInviteCode() {
+  try {
+    return localStorage.getItem(STORAGE_PENDING_INVITE) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function clearPendingInviteCode() {
+  try {
+    localStorage.removeItem(STORAGE_PENDING_INVITE);
+  } catch (_) {}
+}
+
+async function processPendingInviteCode() {
+  if (!currentUser) return;
+  const code = getPendingInviteCode();
+  if (!code) return;
+  const status = $("social-request-status");
+  try {
+    const data = await fetchJSON(API.socialInviteAccept, { method: "POST", body: JSON.stringify({ invite_code: code }) });
+    if (status) status.textContent = data.message || "Friend added from invite link.";
+    clearPendingInviteCode();
+  } catch (err) {
+    if (status) status.textContent = `Invite link error: ${err.message}`;
+  }
+}
+
+async function copyMyInviteLink() {
+  const status = $("social-request-status");
+  if (!currentUser?.invite_code) {
+    if (status) status.textContent = "No invite link available yet.";
+    return;
+  }
+  const url = `${window.location.origin}/?invite=${encodeURIComponent(currentUser.invite_code)}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    if (status) status.textContent = "Invite link copied. Send it by text.";
+  } catch (_) {
+    if (status) status.textContent = url;
+  }
 }
 
 function saveLastDrink(id) {
@@ -876,6 +999,146 @@ function formatHoursShort(hours) {
   return `${h}h ${m}m`;
 }
 
+async function loadCampusPresets() {
+  try {
+    const data = await fetchJSON(API.campusPresets);
+    campusPresets = data.items || [];
+  } catch (_) {
+    campusPresets = [];
+  }
+  const sel = $("campus-preset");
+  if (!sel) return;
+  sel.innerHTML = campusPresets
+    .map((c) => `<option value="${c.id}">${c.name}</option>`)
+    .join("");
+}
+
+function getSelectedCampus() {
+  const sel = $("campus-preset");
+  const id = sel?.value;
+  return campusPresets.find((c) => c.id === id) || campusPresets[0] || null;
+}
+
+function setSosStatus(text) {
+  const el = $("sos-status");
+  if (el) el.textContent = text || "";
+}
+
+function getActiveGroupName() {
+  const active = socialGroups.find((g) => String(g.id) === String(activeGroupId));
+  return active?.name || "my group";
+}
+
+async function runSosAction(kind) {
+  const campus = getSelectedCampus();
+  if (!campus) {
+    setSosStatus("Campus settings unavailable.");
+    return;
+  }
+
+  if (kind === "ride") {
+    if (campus.safe_ride_url) {
+      window.open(campus.safe_ride_url, "_blank", "noopener");
+      setSosStatus(`Opened ${campus.safe_ride_label}.`);
+      return;
+    }
+    if (campus.non_emergency_phone) {
+      window.location.href = `tel:${campus.non_emergency_phone}`;
+      setSosStatus(`Calling ${campus.non_emergency_phone}...`);
+      return;
+    }
+    setSosStatus("No campus ride contact configured.");
+    return;
+  }
+
+  if (kind === "friend") {
+    const firstFriend = (socialState.friends || [])[0];
+    if (firstFriend?.email) {
+      window.location.href = `mailto:${firstFriend.email}?subject=Safety check`;
+      setSosStatus(`Opening message to ${firstFriend.display_name}.`);
+      return;
+    }
+    setSosStatus("Add a friend first to use quick contact.");
+    return;
+  }
+
+  if (kind === "location") {
+    const groupName = getActiveGroupName();
+    const bac = latestState?.bac_now != null ? Number(latestState.bac_now).toFixed(3) : "n/a";
+    const text = `Safety update: BAC ${bac}. Group: ${groupName}.`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Safety update", text, url: window.location.href });
+        setSosStatus("Safety update shared.");
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(`${text} ${window.location.href}`);
+        setSosStatus("Safety update copied to clipboard.");
+      } else {
+        setSosStatus("Sharing not supported on this device.");
+      }
+    } catch (_) {
+      setSosStatus("Sharing canceled.");
+    }
+    return;
+  }
+
+  if (kind === "campus") {
+    if (campus.non_emergency_phone) {
+      window.location.href = `tel:${campus.non_emergency_phone}`;
+      setSosStatus(`Calling campus help at ${campus.non_emergency_phone}...`);
+      return;
+    }
+    window.location.href = `tel:${campus.emergency_phone || "911"}`;
+    setSosStatus("Calling emergency services...");
+  }
+}
+
+async function revokeAllPrivacy() {
+  await fetchJSON(API.socialPrivacyRevokeAll, { method: "POST" });
+  const status = $("privacy-status");
+  if (status) status.textContent = "All sharing and guardian links revoked.";
+  await loadSocial();
+}
+
+async function loadSessionDebrief() {
+  const box = $("debrief-content");
+  if (!box) return;
+  box.textContent = "Loading debrief...";
+  try {
+    const data = await fetchJSON(API.sessionDebrief);
+    const suggestions = (data.suggestions || []).map((s) => `- ${s}`).join("\n");
+    box.textContent = [
+      `Peak BAC: ${Number(data.peak_bac || 0).toFixed(3)}`,
+      `Minutes >= 0.08: ${data.minutes_over_legal_limit || 0}`,
+      `Drinks: ${data.drink_count || 0}`,
+      `Sober in: ${formatHoursShort(data.hours_until_sober_now || 0)}`,
+      "",
+      "Suggestions:",
+      suggestions || "- Keep safe pacing and transportation planning.",
+    ].join("\n");
+  } catch (err) {
+    box.textContent = err.message || "Debrief unavailable.";
+  }
+}
+
+function updateOnboardingStatus() {
+  const el = $("onboarding-status");
+  if (!el) return;
+  if (!currentUser) {
+    el.textContent = "1) Create account 2) Create or join a group 3) Enable sharing when ready.";
+    return;
+  }
+  const hasGroup = socialGroups.length > 0;
+  const hasFriends = (socialState.friends || []).length > 0;
+  const hasGuardian = guardianLinks.length > 0;
+  const steps = [
+    hasGroup ? "Group set up" : "Create or join a safety group",
+    hasFriends ? "Friend network ready" : "Add at least one friend",
+    hasGuardian ? "Guardian link ready" : "Create one guardian link",
+  ];
+  el.textContent = steps.join(" | ");
+}
+
 function updateChartInsights(state) {
   const peakEl = $("peak-bac");
   const legalEl = $("below-legal-in");
@@ -903,6 +1166,17 @@ function updateChartInsights(state) {
   else if (bac >= 0.05) riskEl.textContent = "Elevated";
   else if (bac >= 0.02) riskEl.textContent = "Low";
   else riskEl.textContent = "Minimal";
+}
+
+function updatePacePrediction(state) {
+  const el = $("pace-prediction");
+  if (!el) return;
+  const p = state.pace_prediction;
+  if (!p) {
+    el.textContent = "Log drinks to get predictive pacing advice.";
+    return;
+  }
+  el.textContent = `If you have one more drink now, estimated BAC in 30m: ${Number(p.bac_in_30m_if_one_more_now || 0).toFixed(3)}. ${p.recommendation || ""}`;
 }
 
 function setupShareButton() {
@@ -1167,8 +1441,25 @@ async function refreshState() {
     setAuthUI(false);
     return;
   }
+  latestState = state;
 
   if (!state.configured) {
+    if (!attemptedAutoSetup && currentUser?.default_weight_lb && typeof currentUser?.is_male === "boolean") {
+      attemptedAutoSetup = true;
+      try {
+        await fetchJSON(API.setup, {
+          method: "POST",
+          body: JSON.stringify({
+            weight_lb: currentUser.default_weight_lb,
+            is_male: currentUser.is_male,
+          }),
+        });
+        await refreshState();
+        return;
+      } catch (_) {
+        // Fall back to manual setup UI if account defaults cannot be applied.
+      }
+    }
     $("setup-section").style.display = "block";
     $("tracking-section").style.display = "none";
     return;
@@ -1201,6 +1492,7 @@ async function refreshState() {
   updateNightTools(state);
   updateDriveAdvice(state);
   updateChartInsights(state);
+  updatePacePrediction(state);
 
   const hangoverResult = $("hangover-result");
   const riskEl = $("hangover-risk");
@@ -1286,11 +1578,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   await loadCatalog();
+  pullInviteCodeFromUrl();
   initTabs();
   initializeTargetInputs();
   loadFriends();
   renderFriends();
   setupShareButton();
+  await loadCampusPresets();
   await refreshAuth();
 
   $("btn-login")?.addEventListener("click", async () => {
@@ -1421,6 +1715,29 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-social-add-friend")?.addEventListener("click", async () => {
     await sendSocialFriendRequest();
   });
+  $("btn-social-lookup-user")?.addEventListener("click", async () => {
+    await lookupSocialUser();
+  });
+  $("btn-copy-invite-link")?.addEventListener("click", async () => {
+    await copyMyInviteLink();
+  });
+  $("btn-privacy-revoke-all")?.addEventListener("click", async () => {
+    try {
+      const ok = window.confirm("Revoke all sharing and guardian links now?");
+      if (!ok) return;
+      await revokeAllPrivacy();
+    } catch (err) {
+      const s = $("privacy-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-sos-ride")?.addEventListener("click", () => runSosAction("ride"));
+  $("btn-sos-call-friend")?.addEventListener("click", () => runSosAction("friend"));
+  $("btn-sos-share-location")?.addEventListener("click", () => runSosAction("location"));
+  $("btn-sos-campus-help")?.addEventListener("click", () => runSosAction("campus"));
+  $("btn-session-debrief")?.addEventListener("click", async () => {
+    await loadSessionDebrief();
+  });
   $("social-requests-list")?.addEventListener("click", async (e) => {
     const target = e.target.closest(".social-respond");
     if (!target) return;
@@ -1487,5 +1804,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (s) s.textContent = err.message;
       }
     }
+  });
+  $("btn-social-toggle-alerts")?.addEventListener("click", () => {
+    showAllSocialAlerts = !showAllSocialAlerts;
+    renderGroupSnapshot();
   });
 });

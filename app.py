@@ -12,11 +12,15 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request, session as flask_session
 
+from bac_app import calculations
 from bac_app.auth_store import (
+    add_friendship,
     are_friends,
     authenticate_user,
     create_user,
     find_user_by_email,
+    find_user_by_invite_code,
+    find_user_by_username,
     get_user_by_id,
     get_group_role,
     get_group_snapshot,
@@ -48,6 +52,7 @@ from bac_app.auth_store import (
     revoke_guardian_link,
     set_guardian_link_alerts,
     get_share_with_friends,
+    revoke_all_sharing_for_user,
 )
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drive import get_drive_advice
@@ -74,6 +79,33 @@ AUTH_USER_KEY = "auth_user_id"
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
 DEFAULT_AUTH_DB_PATH = str(Path("instance") / "app.db")
+
+CAMPUS_PRESETS = [
+    {
+        "id": "generic",
+        "name": "Generic Campus",
+        "safe_ride_label": "Campus Safe Ride",
+        "safe_ride_url": "",
+        "non_emergency_phone": "",
+        "emergency_phone": "911",
+    },
+    {
+        "id": "asu",
+        "name": "Arizona State University",
+        "safe_ride_label": "ASU Safety Escort",
+        "safe_ride_url": "https://cfo.asu.edu/safety-escort",
+        "non_emergency_phone": "480-965-3456",
+        "emergency_phone": "911",
+    },
+    {
+        "id": "ucla",
+        "name": "UCLA",
+        "safe_ride_label": "CSO Safety Escort",
+        "safe_ride_url": "https://police.ucla.edu/how-we-can-help/security-escort",
+        "non_emergency_phone": "310-825-1491",
+        "emergency_phone": "911",
+    },
+]
 
 
 def _feedback_db_path() -> str:
@@ -134,6 +166,7 @@ def _empty_state() -> dict[str, Any]:
         "total_sugar_g": 0,
         "hangover_plan": None,
         "drive_advice": None,
+        "pace_prediction": None,
     }
 
 
@@ -244,6 +277,7 @@ def api_auth_register():
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", "")).strip()
     display_name = str(data.get("display_name", "")).strip() or email.split("@")[0]
+    username = str(data.get("username", "")).strip().lower()
     gender = str(data.get("gender", "")).strip().lower()
     if gender not in {"male", "female"}:
         return jsonify({"error": "Gender must be male or female"}), 400
@@ -259,6 +293,11 @@ def api_auth_register():
         return jsonify({"error": "Password must be at least 8 characters"}), 400
     if len(display_name) > 40:
         return jsonify({"error": "Display name must be 40 characters or fewer"}), 400
+    if username:
+        if len(username) < 3 or len(username) > 24:
+            return jsonify({"error": "Username must be 3-24 characters"}), 400
+        if any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789_" for ch in username):
+            return jsonify({"error": "Username can only use a-z, 0-9, and _"}), 400
     if default_weight_lb < MIN_WEIGHT_LB or default_weight_lb > MAX_WEIGHT_LB:
         return jsonify({"error": "Weight must be between 80 and 400 lb"}), 400
 
@@ -267,11 +306,12 @@ def api_auth_register():
         email=email,
         password=password,
         display_name=display_name,
+        username=username or None,
         is_male=is_male,
         default_weight_lb=default_weight_lb,
     )
     if user is None:
-        return jsonify({"error": "Email already registered"}), 409
+        return jsonify({"error": "Email or username already registered"}), 409
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
@@ -309,6 +349,16 @@ def api_social_status():
     return jsonify(_social_payload(user_id))
 
 
+@app.route("/api/social/privacy/revoke-all", methods=["POST"])
+def api_social_privacy_revoke_all():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    revoke_all_sharing_for_user(_auth_db_path(), user_id=user_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/social/share", methods=["POST"])
 def api_social_share():
     user_id = _require_user_id()
@@ -328,16 +378,71 @@ def api_social_request():
         return _auth_required_error()
     data = request.get_json() or {}
     email = str(data.get("email", "")).strip().lower()
-    if "@" not in email:
-        return jsonify({"error": "Valid email is required"}), 400
+    username = str(data.get("username", "")).strip().lower()
+    if not email and not username:
+        return jsonify({"error": "Email or username is required"}), 400
     _ensure_auth_db()
-    target = find_user_by_email(_auth_db_path(), email=email)
+    target = find_user_by_email(_auth_db_path(), email=email) if email else find_user_by_username(_auth_db_path(), username=username)
     if target is None:
         return jsonify({"error": "User not found"}), 404
     ok, msg = send_friend_request(_auth_db_path(), from_user_id=user_id, to_user_id=target["id"])
     if not ok:
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/social/user-lookup")
+def api_social_user_lookup():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    username = str(request.args.get("username", "")).strip().lower()
+    if len(username) < 3:
+        return jsonify({"error": "Username must be at least 3 characters"}), 400
+    _ensure_auth_db()
+    target = find_user_by_username(_auth_db_path(), username=username)
+    if target is None:
+        return jsonify({"error": "User not found"}), 404
+    if int(target["id"]) == int(user_id):
+        return jsonify({"error": "That is your username"}), 400
+    return jsonify(
+        {
+            "user": {
+                "id": target["id"],
+                "display_name": target["display_name"],
+                "username": target["username"],
+            }
+        }
+    )
+
+
+@app.route("/api/social/invite/accept", methods=["POST"])
+def api_social_invite_accept():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    invite_code = str(data.get("invite_code", "")).strip().upper()
+    if len(invite_code) < 6:
+        return jsonify({"error": "Valid invite code is required"}), 400
+    _ensure_auth_db()
+    inviter = find_user_by_invite_code(_auth_db_path(), invite_code=invite_code)
+    if inviter is None:
+        return jsonify({"error": "Invite link is invalid"}), 404
+    ok, msg = add_friendship(_auth_db_path(), user_a=user_id, user_b=int(inviter["id"]))
+    if not ok and msg != "Already friends.":
+        return jsonify({"error": msg}), 400
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Friend added." if ok else "Already friends.",
+            "friend": {
+                "id": inviter["id"],
+                "display_name": inviter["display_name"],
+                "username": inviter["username"],
+            },
+        }
+    )
 
 
 @app.route("/api/social/request/respond", methods=["POST"])
@@ -589,6 +694,11 @@ def api_catalog():
     return jsonify({"by_category": by_cat, "flat": flat})
 
 
+@app.route("/api/campus/presets")
+def api_campus_presets():
+    return jsonify({"items": CAMPUS_PRESETS})
+
+
 @app.route("/api/favorites")
 def api_favorites():
     user_id = _require_user_id()
@@ -669,6 +779,16 @@ def api_state():
     _ensure_auth_db()
     upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=len(events))
     maybe_create_threshold_alert(_auth_db_path(), user_id=user_id, bac_now=bac_now)
+    one_more_events = list(model.events_bac) + [(0.0, 14.0)]
+    bac_30_if_one_more = calculations.bac_at_time(0.5, one_more_events, model.weight_lb, model.is_male)
+    pace_prediction = {
+        "bac_in_30m_if_one_more_now": round(bac_30_if_one_more, 4),
+        "recommendation": (
+            "Do not add another drink yet."
+            if bac_30_if_one_more >= 0.08
+            else "If you drink one more now, keep it to one and hydrate first."
+        ),
+    }
 
     return jsonify({
         "authenticated": True,
@@ -684,6 +804,7 @@ def api_state():
         "total_sugar_g": round(model.total_sugar_g, 1),
         "hangover_plan": hangover_plan,
         "drive_advice": get_drive_advice(bac_now, model.hours_until_sober_from_now()),
+        "pace_prediction": pace_prediction,
     })
 
 
@@ -716,6 +837,37 @@ def api_reset():
         return jsonify({"ok": True})
     set_session(Session(weight_lb=model.weight_lb, is_male=model.is_male))
     return jsonify({"ok": True})
+
+
+@app.route("/api/session/debrief")
+def api_session_debrief():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    model = get_session()
+    if model is None or not model.events:
+        return jsonify({"error": "No active session for debrief"}), 400
+    curve = model.curve(step_hours=0.25, start_hours=min(t for t, _ in model.events), max_hours=24.0)
+    peak = max((b for _, b in curve), default=0.0)
+    over_limit_minutes = int(sum(15 for _, b in curve if b >= 0.08))
+    suggestions = []
+    if peak >= 0.10:
+        suggestions.append("Peak BAC was high. Slow pace earlier and alternate water each drink.")
+    if over_limit_minutes >= 120:
+        suggestions.append("You spent 2+ hours above 0.08. Plan ride-home earlier next time.")
+    if len(model.events) >= 6:
+        suggestions.append("High drink count. Consider a hard cap before the night starts.")
+    if not suggestions:
+        suggestions.append("Good pacing overall. Keep hydration and transportation planning consistent.")
+    return jsonify(
+        {
+            "peak_bac": round(peak, 4),
+            "hours_until_sober_now": model.hours_until_sober_from_now(),
+            "drink_count": len(model.events),
+            "minutes_over_legal_limit": over_limit_minutes,
+            "suggestions": suggestions,
+        }
+    )
 
 
 @app.route("/api/session/save", methods=["POST"])

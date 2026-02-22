@@ -60,3 +60,16 @@ def test_hangover_plan():
     assert plan["hangover_risk"] in ("low", "medium", "high")
     assert "stop_by_hours_from_now" in plan
     assert "message" in plan
+
+
+def test_hangover_plan_uses_pace_to_adjust_stop_time():
+    from bac_app.hangover import get_plan
+
+    slow_events = [(-3.0, 42.0)]  # ~1 drink/hr recent pace
+    fast_events = [(-1.0, 42.0)]  # ~3 drinks/hr recent pace
+
+    slow = get_plan(slow_events, 180, True, 10)
+    fast = get_plan(fast_events, 180, True, 10)
+
+    assert slow["estimated_drinks_per_hour"] < fast["estimated_drinks_per_hour"]
+    assert slow["stop_by_hours_from_now"] > fast["stop_by_hours_from_now"]

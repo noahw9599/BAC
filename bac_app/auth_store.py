@@ -3,11 +3,37 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import sqlite3
 from typing import Any
 
 from werkzeug.security import check_password_hash, generate_password_hash
+
+
+def _slugify_username(value: str) -> str:
+    base = re.sub(r"[^a-z0-9_]", "", value.strip().lower().replace(" ", "_"))
+    return base[:24]
+
+
+def _unique_username(conn: sqlite3.Connection, preferred: str) -> str:
+    base = _slugify_username(preferred) or f"user{secrets.randbelow(10_000)}"
+    candidate = base
+    suffix = 2
+    while True:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (candidate,)).fetchone()
+        if exists is None:
+            return candidate
+        candidate = f"{base[: max(1, 24 - len(str(suffix)))]}{suffix}"
+        suffix += 1
+
+
+def _unique_invite_code(conn: sqlite3.Connection) -> str:
+    while True:
+        code = secrets.token_urlsafe(8)[:10].upper()
+        exists = conn.execute("SELECT 1 FROM users WHERE invite_code = ?", (code,)).fetchone()
+        if exists is None:
+            return code
 
 
 def init_db(db_path: str) -> None:
@@ -32,6 +58,24 @@ def init_db(db_path: str) -> None:
             conn.execute("ALTER TABLE users ADD COLUMN is_male INTEGER")
         if "default_weight_lb" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN default_weight_lb REAL")
+        if "username" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        if "invite_code" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invite_code TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_code_unique ON users(invite_code)")
+        # Backfill username/invite_code for existing rows if missing.
+        existing = conn.execute(
+            "SELECT id, display_name, email, username, invite_code FROM users WHERE username IS NULL OR invite_code IS NULL"
+        ).fetchall()
+        for row in existing:
+            user_id, display_name, email, username, invite_code = row
+            if not username:
+                fallback = (display_name or email.split("@")[0] or f"user{user_id}")
+                username = _unique_username(conn, str(fallback))
+            if not invite_code:
+                invite_code = _unique_invite_code(conn)
+            conn.execute("UPDATE users SET username = ?, invite_code = ? WHERE id = ?", (username, invite_code, user_id))
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS saved_sessions (
@@ -173,18 +217,29 @@ def create_user(
     email: str,
     password: str,
     display_name: str,
+    username: str | None,
     is_male: bool,
     default_weight_lb: float,
 ) -> dict[str, Any] | None:
     password_hash = generate_password_hash(password)
     try:
         with sqlite3.connect(db_path) as conn:
+            chosen_username = _unique_username(conn, username or display_name or email.split("@")[0])
+            invite_code = _unique_invite_code(conn)
             cur = conn.execute(
                 """
-                INSERT INTO users (email, password_hash, display_name, is_male, default_weight_lb)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (email, password_hash, display_name, username, invite_code, is_male, default_weight_lb)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (email.lower().strip(), password_hash, display_name.strip(), int(bool(is_male)), float(default_weight_lb)),
+                (
+                    email.lower().strip(),
+                    password_hash,
+                    display_name.strip(),
+                    chosen_username,
+                    invite_code,
+                    int(bool(is_male)),
+                    float(default_weight_lb),
+                ),
             )
             conn.commit()
             user_id = int(cur.lastrowid)
@@ -195,6 +250,8 @@ def create_user(
         "id": user_id,
         "email": email.lower().strip(),
         "display_name": display_name.strip(),
+        "username": chosen_username,
+        "invite_code": invite_code,
         "is_male": bool(is_male),
         "default_weight_lb": float(default_weight_lb),
     }
@@ -204,7 +261,7 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name, is_male, default_weight_lb, password_hash FROM users WHERE email = ?",
+            "SELECT id, email, display_name, username, invite_code, is_male, default_weight_lb, password_hash FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
 
@@ -221,6 +278,8 @@ def authenticate_user(db_path: str, *, email: str, password: str) -> dict[str, A
         "id": row["id"],
         "email": row["email"],
         "display_name": row["display_name"],
+        "username": row["username"],
+        "invite_code": row["invite_code"],
         "is_male": bool(row["is_male"]) if row["is_male"] is not None else True,
         "default_weight_lb": row["default_weight_lb"],
     }
@@ -230,7 +289,7 @@ def get_user_by_id(db_path: str, user_id: int) -> dict[str, Any] | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name, is_male, default_weight_lb FROM users WHERE id = ?",
+            "SELECT id, email, display_name, username, invite_code, is_male, default_weight_lb FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     if row is None:
@@ -239,6 +298,8 @@ def get_user_by_id(db_path: str, user_id: int) -> dict[str, Any] | None:
         "id": row["id"],
         "email": row["email"],
         "display_name": row["display_name"],
+        "username": row["username"],
+        "invite_code": row["invite_code"],
         "is_male": bool(row["is_male"]) if row["is_male"] is not None else True,
         "default_weight_lb": row["default_weight_lb"],
     }
@@ -379,12 +440,60 @@ def find_user_by_email(db_path: str, *, email: str) -> dict[str, Any] | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id, email, display_name FROM users WHERE email = ?",
+            "SELECT id, email, display_name, username, invite_code FROM users WHERE email = ?",
             (email.strip().lower(),),
         ).fetchone()
     if row is None:
         return None
-    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "username": row["username"],
+        "invite_code": row["invite_code"],
+    }
+
+
+def find_user_by_username(db_path: str, *, username: str) -> dict[str, Any] | None:
+    cleaned = _slugify_username(username)
+    if not cleaned:
+        return None
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, email, display_name, username, invite_code FROM users WHERE username = ?",
+            (cleaned,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "username": row["username"],
+        "invite_code": row["invite_code"],
+    }
+
+
+def find_user_by_invite_code(db_path: str, *, invite_code: str) -> dict[str, Any] | None:
+    code = invite_code.strip().upper()
+    if not code:
+        return None
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, email, display_name, username, invite_code FROM users WHERE invite_code = ?",
+            (code,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "username": row["username"],
+        "invite_code": row["invite_code"],
+    }
 
 
 def set_share_with_friends(db_path: str, *, user_id: int, enabled: bool) -> None:
@@ -484,6 +593,33 @@ def send_friend_request(db_path: str, *, from_user_id: int, to_user_id: int) -> 
         )
         conn.commit()
     return True, "Request sent."
+
+
+def add_friendship(db_path: str, *, user_a: int, user_b: int) -> tuple[bool, str]:
+    if user_a == user_b:
+        return False, "You cannot friend yourself."
+    if are_friends(db_path, user_a=user_a, user_b=user_b):
+        return False, "Already friends."
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)",
+            (user_a, user_b),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)",
+            (user_b, user_a),
+        )
+        conn.execute(
+            """
+            UPDATE friend_requests
+            SET status = 'accepted', responded_at = datetime('now')
+            WHERE ((from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?))
+              AND status = 'pending'
+            """,
+            (user_a, user_b, user_b, user_a),
+        )
+        conn.commit()
+    return True, "Friends added."
 
 
 def list_incoming_friend_requests(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
@@ -932,3 +1068,28 @@ def get_group_snapshot_by_guardian_token(db_path: str, *, token: str) -> dict[st
             for a in alerts
         ],
     }
+
+
+def revoke_all_sharing_for_user(db_path: str, *, user_id: int) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE user_social_settings SET share_with_friends = 0, updated_at = datetime('now') WHERE user_id = ?",
+            (user_id,),
+        )
+        conn.execute(
+            "UPDATE group_members SET share_enabled = 0 WHERE user_id = ?",
+            (user_id,),
+        )
+        # Revoke guardian links in groups user owns or moderates.
+        conn.execute(
+            """
+            UPDATE guardian_links
+            SET is_active = 0
+            WHERE group_id IN (
+              SELECT group_id FROM group_members
+              WHERE user_id = ? AND role IN ('owner', 'mod')
+            )
+            """,
+            (user_id,),
+        )
+        conn.commit()

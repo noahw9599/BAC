@@ -376,3 +376,86 @@ def test_group_safety_flow():
     assert revoke.status_code == 200
     public_after = a.get(f"/api/guardian/{token}")
     assert public_after.status_code == 404
+
+
+def test_campus_presets_available(client):
+    res = client.get("/api/campus/presets")
+    assert res.status_code == 200
+    items = res.get_json()["items"]
+    assert len(items) >= 1
+    assert {"id", "name", "emergency_phone"}.issubset(items[0].keys())
+
+
+def test_session_debrief_requires_active_session(client):
+    register(client)
+    no_data = client.get("/api/session/debrief")
+    assert no_data.status_code == 400
+
+    client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 2, "hours_ago": 0})
+    res = client.get("/api/session/debrief")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert "peak_bac" in body
+    assert "suggestions" in body
+
+
+def test_privacy_revoke_all_disables_group_sharing_and_guardians():
+    app.config["TESTING"] = True
+    a = app.test_client()
+    b = app.test_client()
+    register(a, email="owner@example.edu", name="Owner")
+    register(b, email="member@example.edu", name="Member")
+
+    created = a.post("/api/social/groups/create", json={"name": "Safety Crew"})
+    group_id = created.get_json()["group"]["id"]
+    invite_code = created.get_json()["group"]["invite_code"]
+    b.post("/api/social/groups/join", json={"invite_code": invite_code})
+
+    gl = a.post(f"/api/social/groups/{group_id}/guardian-links", json={"label": "Parent", "receive_alerts": True})
+    token = gl.get_json()["item"]["token"]
+    assert a.get(f"/api/guardian/{token}").status_code == 200
+
+    revoke = a.post("/api/social/privacy/revoke-all")
+    assert revoke.status_code == 200
+
+    snap = a.get(f"/api/social/groups/{group_id}")
+    assert snap.status_code == 200
+    me = next(m for m in snap.get_json()["members"] if m["display_name"] == "Owner")
+    assert me["share_enabled"] is False
+    assert a.get(f"/api/guardian/{token}").status_code == 404
+
+
+def test_register_returns_username_and_invite_code(client):
+    user = register(client, email="named@example.edu", name="Named Person")
+    assert user["username"]
+    assert user["invite_code"]
+
+
+def test_social_lookup_and_request_by_username():
+    app.config["TESTING"] = True
+    a = app.test_client()
+    b = app.test_client()
+    register(a, email="lookup-a@example.edu", name="LookupA")
+    b_user = register(b, email="lookup-b@example.edu", name="LookupB")
+
+    lookup = a.get(f"/api/social/user-lookup?username={b_user['username']}")
+    assert lookup.status_code == 200
+    assert lookup.get_json()["user"]["id"] == b_user["id"]
+
+    req = a.post("/api/social/request", json={"username": b_user["username"]})
+    assert req.status_code == 200
+
+
+def test_invite_link_accept_adds_friendship():
+    app.config["TESTING"] = True
+    a = app.test_client()
+    b = app.test_client()
+    inviter = register(a, email="inviter@example.edu", name="Inviter")
+    register(b, email="joiner@example.edu", name="Joiner")
+
+    accept = b.post("/api/social/invite/accept", json={"invite_code": inviter["invite_code"]})
+    assert accept.status_code == 200
+
+    friends = b.get("/api/social/status").get_json()["friends"]
+    assert any(f["id"] == inviter["id"] for f in friends)

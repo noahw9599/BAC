@@ -31,6 +31,10 @@
 
   <script>
     const TOKEN = "{{ token }}";
+    let lastAlertId = 0;
+    try {
+      lastAlertId = parseInt(localStorage.getItem(`guardian-last-alert-${TOKEN}`) || "0", 10) || 0;
+    } catch (_) {}
     async function load() {
       const res = await fetch(`/api/guardian/${TOKEN}`);
       const data = await res.json();
@@ -58,6 +62,20 @@
         row.innerHTML = `<div class="friend-main">${x.alert_type.toUpperCase()}</div><div class="friend-counts">${x.message} | ${x.created_at}</div>`;
         a.appendChild(row);
       });
+      if (data.alerts.length) {
+        const newest = data.alerts[0].id;
+        if (newest > lastAlertId) {
+          if (Notification && Notification.permission === "granted") {
+            const alertHead = data.alerts[0];
+            new Notification(`${data.group.name} safety alert`, { body: alertHead.message });
+          }
+          lastAlertId = newest;
+          try { localStorage.setItem(`guardian-last-alert-${TOKEN}`, String(lastAlertId)); } catch (_) {}
+        }
+      }
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
     }
     load();
     setInterval(load, 30000);

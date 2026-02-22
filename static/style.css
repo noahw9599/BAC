@@ -1,12 +1,17 @@
 :root {
   --bg: #0f172a;
   --surface: #1e293b;
+  --surface-2: #111b33;
   --border: #334155;
   --text: #f1f5f9;
   --muted: #94a3b8;
   --primary: #38bdf8;
   --primary-dim: #0ea5e9;
   --danger: #f87171;
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
 }
 
 * {
@@ -15,8 +20,8 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(1200px 700px at 10% -20%, #1b2f57 0%, var(--bg) 45%) fixed;
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
@@ -27,11 +32,11 @@ body {
 .container {
   max-width: 540px;
   margin: 0 auto;
-  padding: 0.75rem 0.9rem 5.5rem;
+  padding: var(--space-2) var(--space-2) 5.5rem;
 }
 
 header {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-3);
 }
 
 header h1 {
@@ -47,11 +52,12 @@ header h1 {
 }
 
 .card {
-  background: var(--surface);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(17, 27, 51, 0.9));
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.25rem;
-  margin-bottom: 1.25rem;
+  border-radius: 14px;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  box-shadow: 0 8px 22px rgba(2, 8, 23, 0.24);
 }
 
 .card h2, .section-title {
@@ -64,8 +70,8 @@ header h1 {
 .quick-add {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0.6rem;
-  margin-bottom: 1rem;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 .quick-btn {
@@ -89,12 +95,16 @@ header h1 {
 
 /* ---- More options (details/summary) ---- */
 .more-options {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-2);
   font-size: 0.9rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg);
-  padding: 0.65rem;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.55rem 0.65rem;
+}
+
+.more-options[open] {
+  padding-bottom: 0.65rem;
 }
 
 .app-tabs {
@@ -137,10 +147,11 @@ header h1 {
 }
 
 .more-options-title {
-  margin: 0 0 0.45rem;
+  margin: 0;
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--text);
+  color: #dbeafe;
+  cursor: pointer;
 }
 
 .add-custom {
@@ -223,10 +234,10 @@ header h1 {
 
 /* ---- Buttons ---- */
 .btn {
-  padding: 0.65rem 1.2rem;
+  padding: 0.62rem 1.05rem;
   border: none;
   border-radius: 10px;
-  font-size: 1rem;
+  font-size: 0.96rem;
   font-weight: 500;
   cursor: pointer;
   min-height: 44px;
@@ -241,6 +252,7 @@ header h1 {
 .btn-primary {
   background: var(--primary);
   color: var(--bg);
+  font-weight: 700;
 }
 
 .btn-primary:hover, .btn-primary:active {
@@ -250,7 +262,7 @@ header h1 {
 .btn-secondary {
   background: var(--border);
   color: var(--text);
-  margin-top: 0.5rem;
+  margin-top: 0;
 }
 
 .btn-secondary:hover {
@@ -261,9 +273,9 @@ header h1 {
 .stats {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 0.35rem;
-  margin: 1rem 0;
-  padding: 0.75rem 0;
+  gap: 0.45rem;
+  margin: var(--space-2) 0;
+  padding: var(--space-2) 0;
   border-top: 1px solid var(--border);
 }
 
@@ -295,8 +307,8 @@ header h1 {
 
 /* ---- Hangover ---- */
 .hangover-card {
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--border);
 }
 
@@ -355,9 +367,11 @@ header h1 {
 .hangover-message { margin: 0; color: var(--text); }
 
 .card-lite {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.68);
 }
 
 .night-grid {
@@ -420,8 +434,8 @@ header h1 {
 .friend-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  margin-top: 0.55rem;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
 }
 
 .friend-add input {
@@ -435,14 +449,14 @@ header h1 {
 }
 
 .group-summary {
-  margin: 0.6rem 0 0.45rem;
+  margin: var(--space-1) 0;
   color: var(--muted);
   font-size: 0.82rem;
 }
 
 .friend-list {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-1);
 }
 
 .friend-row {
@@ -464,7 +478,7 @@ header h1 {
 }
 
 .friend-actions {
-  margin-top: 0.45rem;
+  margin-top: var(--space-1);
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
@@ -604,7 +618,7 @@ header h1 {
 .chart-wrap {
   position: relative;
   height: 220px;
-  margin: 1rem 0;
+  margin: var(--space-2) 0;
 }
 
 .chart-wrap-large {
@@ -616,8 +630,8 @@ header h1 {
 .row {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 label {
@@ -636,6 +650,47 @@ label input, label select {
   background: var(--bg);
   color: var(--text);
   font-size: 1rem;
+}
+
+.accordion {
+  margin-top: var(--space-2);
+}
+
+.accordion > summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  color: #dbeafe;
+}
+
+.accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accordion > summary::after {
+  content: "+";
+  float: right;
+  color: var(--muted);
+}
+
+.accordion[open] > summary::after {
+  content: "−";
+}
+
+.accordion-body {
+  margin-top: var(--space-2);
+}
+
+#btn-social-toggle-alerts {
+  margin-top: var(--space-1);
+}
+
+#debrief-content {
+  white-space: pre-wrap;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-2);
 }
 
 .sr-only {

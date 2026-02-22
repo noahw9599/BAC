@@ -21,7 +21,7 @@
     </header>
 
     <nav class="app-tabs" aria-label="Main tabs">
-      <button type="button" class="tab-btn active" data-tab="current">Current</button>
+      <button type="button" class="tab-btn active" data-tab="current">Now</button>
       <button type="button" class="tab-btn" data-tab="history">History</button>
       <button type="button" class="tab-btn" data-tab="social">Social</button>
       <button type="button" class="tab-btn" data-tab="account">Account</button>
@@ -50,8 +50,8 @@
         <h2 class="section-title">Tap to add (right now)</h2>
         <div class="quick-add" id="quick-add"></div>
 
-        <div class="more-options" id="more-options">
-          <h3 class="more-options-title">Add from full drink list</h3>
+        <details class="more-options" id="more-options">
+          <summary class="more-options-title">More drink options</summary>
           <div class="add-custom">
             <label for="drink-catalog">Drink</label>
             <select id="drink-catalog" aria-label="Choose drink"></select>
@@ -70,7 +70,7 @@
               </div>
             </div>
           </div>
-        </div>
+        </details>
 
         <div class="stats" id="stats">
           <div class="stat"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
@@ -102,39 +102,63 @@
           <p class="drive-action" id="drive-action"></p>
         </div>
 
-        <div class="hangover-card">
-          <h3>Need to be sharp tomorrow?</h3>
-          <div class="target-inputs">
-            <label>Date<input type="date" id="target-date"></label>
-            <label>Time<input type="time" id="target-time" step="900"></label>
+        <details class="accordion card-lite">
+          <summary>Planning tools</summary>
+          <div class="accordion-body">
+            <h3>Smart pace coach</h3>
+            <p class="mini-help" id="pace-prediction">Loading pace prediction...</p>
+            <div class="hangover-card">
+              <h3>Need to be sharp tomorrow?</h3>
+              <div class="target-inputs">
+                <label>Date<input type="date" id="target-date"></label>
+                <label>Time<input type="time" id="target-time" step="900"></label>
+              </div>
+              <div class="friend-actions">
+                <button type="button" class="chip" id="btn-target-tonight">Tonight 11:00 PM</button>
+                <button type="button" class="chip" id="btn-target-tomorrow">Tomorrow 8:00 AM</button>
+              </div>
+              <p class="group-summary" id="target-summary"></p>
+              <div id="hangover-result" class="hangover-result" style="display: none;">
+                <p class="hangover-risk" id="hangover-risk"></p>
+                <p class="hangover-stop" id="hangover-stop"></p>
+                <p class="hangover-message" id="hangover-message"></p>
+              </div>
+            </div>
           </div>
-          <div class="friend-actions">
-            <button type="button" class="chip" id="btn-target-tonight">Tonight 11:00 PM</button>
-            <button type="button" class="chip" id="btn-target-tomorrow">Tomorrow 8:00 AM</button>
-          </div>
-          <p class="group-summary" id="target-summary"></p>
-          <div id="hangover-result" class="hangover-result" style="display: none;">
-            <p class="hangover-risk" id="hangover-risk"></p>
-            <p class="hangover-stop" id="hangover-stop"></p>
-            <p class="hangover-message" id="hangover-message"></p>
-          </div>
-        </div>
+        </details>
 
-        <div class="night-tools card-lite">
-          <h3>All-night tools</h3>
-          <div class="night-grid">
-            <div class="mini-card">
-              <p class="mini-title">Hydration</p>
-              <p class="mini-value" id="water-progress">0 / 0 oz</p>
-              <p class="mini-help" id="water-hint">Add water to pace the night.</p>
-              <button type="button" class="btn btn-add-water" id="btn-add-water">+8 oz water</button>
+        <details class="accordion card-lite">
+          <summary>Safety tools</summary>
+          <div class="accordion-body">
+            <h3>Safety actions</h3>
+            <label>
+              Campus preset
+              <select id="campus-preset"></select>
+            </label>
+            <div class="friend-actions">
+              <button type="button" class="chip" id="btn-sos-ride">Need ride</button>
+              <button type="button" class="chip" id="btn-sos-call-friend">Call friend</button>
+              <button type="button" class="chip" id="btn-sos-share-location">Share location</button>
+              <button type="button" class="chip" id="btn-sos-campus-help">Campus help</button>
             </div>
-            <div class="mini-card">
-              <p class="mini-title">Pace coach</p>
-              <p class="mini-help" id="pace-coach">Log drinks to get pacing advice.</p>
+            <p class="group-summary" id="sos-status"></p>
+            <div class="night-tools">
+              <h3>All-night tools</h3>
+              <div class="night-grid">
+                <div class="mini-card">
+                  <p class="mini-title">Hydration</p>
+                  <p class="mini-value" id="water-progress">0 / 0 oz</p>
+                  <p class="mini-help" id="water-hint">Add water to pace the night.</p>
+                  <button type="button" class="btn btn-add-water" id="btn-add-water">+8 oz water</button>
+                </div>
+                <div class="mini-card">
+                  <p class="mini-title">Pace coach</p>
+                  <p class="mini-help" id="pace-coach">Log drinks to get pacing advice.</p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </details>
 
         <button type="button" class="btn btn-secondary btn-block" id="btn-reset">Clear all drinks</button>
         <button type="button" class="btn btn-primary btn-block" id="btn-share-app">Share app with friends</button>
@@ -158,6 +182,12 @@
         </div>
         <p class="group-summary" id="session-status"></p>
         <div id="saved-session-list" class="friend-list"></div>
+      </section>
+      <section class="card-lite">
+        <h3>Session debrief</h3>
+        <p class="mini-help">Get a quick summary of your current active session and safer-next-time suggestions.</p>
+        <button type="button" class="btn btn-secondary" id="btn-session-debrief">Generate debrief</button>
+        <pre id="debrief-content" class="group-summary">No debrief yet.</pre>
       </section>
     </section>
 
@@ -197,35 +227,53 @@
         </div>
 
         <div class="card-lite">
-          <h3>Members</h3>
-          <div id="social-members-list" class="friend-list"></div>
-        </div>
-
-        <div class="card-lite">
           <h3>Safety alerts</h3>
           <div id="social-alerts-list" class="friend-list"></div>
+          <button type="button" class="chip" id="btn-social-toggle-alerts">Show all alerts</button>
         </div>
 
-        <div class="card-lite">
-          <h3>Guardian links</h3>
-          <div class="friend-add">
-            <label class="sr-only" for="social-guardian-label">Guardian label</label>
-            <input type="text" id="social-guardian-label" maxlength="40" placeholder="Example: Mom">
-            <button type="button" class="btn btn-primary" id="btn-social-create-guardian">Create link</button>
+        <details class="accordion card-lite">
+          <summary>Members</summary>
+          <div class="accordion-body">
+            <div id="social-members-list" class="friend-list"></div>
           </div>
-          <div id="social-guardian-list" class="friend-list"></div>
-        </div>
+        </details>
 
-        <div class="card-lite">
-          <h3>Friend network (optional)</h3>
-          <div class="friend-add">
-            <label class="sr-only" for="social-friend-email">Friend email</label>
-            <input type="email" id="social-friend-email" placeholder="friend@example.com">
-            <button type="button" class="btn btn-primary" id="btn-social-add-friend">Send request</button>
+        <details class="accordion card-lite">
+          <summary>Guardian links</summary>
+          <div class="accordion-body">
+            <div class="friend-add">
+              <label class="sr-only" for="social-guardian-label">Guardian label</label>
+              <input type="text" id="social-guardian-label" maxlength="40" placeholder="Example: Mom">
+              <button type="button" class="btn btn-primary" id="btn-social-create-guardian">Create link</button>
+            </div>
+            <div id="social-guardian-list" class="friend-list"></div>
           </div>
-          <div id="social-requests-list" class="friend-list"></div>
-          <div id="social-friends-list" class="friend-list"></div>
-        </div>
+        </details>
+
+        <details class="accordion card-lite">
+          <summary>Friend network</summary>
+          <div class="accordion-body">
+            <p class="mini-help">Use username lookup or share your invite link by text for one-tap friend add.</p>
+            <div class="friend-add">
+              <label class="sr-only" for="social-lookup-username">Lookup username</label>
+              <input type="text" id="social-lookup-username" maxlength="24" placeholder="Find by username (example: noah123)">
+              <button type="button" class="btn btn-secondary" id="btn-social-lookup-user">Lookup</button>
+            </div>
+            <p class="group-summary" id="social-lookup-result"></p>
+            <div class="friend-add">
+              <label class="sr-only" for="social-friend-email">Friend email or username</label>
+              <input type="text" id="social-friend-email" placeholder="friend@example.com or username">
+              <button type="button" class="btn btn-primary" id="btn-social-add-friend">Send request</button>
+            </div>
+            <div class="friend-add">
+              <button type="button" class="btn btn-secondary" id="btn-copy-invite-link">Copy my invite link</button>
+            </div>
+            <p class="group-summary" id="my-friend-profile"></p>
+            <div id="social-requests-list" class="friend-list"></div>
+            <div id="social-friends-list" class="friend-list"></div>
+          </div>
+        </details>
 
         <div class="card-lite">
           <h3>Live friend feed</h3>
@@ -257,6 +305,9 @@
             <label>Email<input type="email" id="auth-register-email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com"></label>
           </div>
           <div class="row">
+            <label>Username<input type="text" id="auth-register-username" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="letters, numbers, underscore"></label>
+          </div>
+          <div class="row">
             <label>Password<input type="password" id="auth-register-password" autocomplete="new-password" placeholder="At least 8 characters"></label>
             <label>Gender
               <select id="auth-register-gender">
@@ -271,6 +322,18 @@
 
         <div class="feedback-actions">
           <button type="button" class="btn btn-secondary" id="btn-logout" style="display:none;">Log out</button>
+        </div>
+
+        <div class="card-lite">
+          <h3>Privacy center</h3>
+          <p class="mini-help">Revoke all sharing and guardian links instantly.</p>
+          <button type="button" class="btn btn-secondary btn-block" id="btn-privacy-revoke-all">Revoke all sharing</button>
+          <p class="group-summary" id="privacy-status"></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Onboarding</h3>
+          <p class="mini-help" id="onboarding-status">Loading onboarding steps...</p>
         </div>
       </section>
     </section>
