@@ -459,3 +459,37 @@ def test_invite_link_accept_adds_friendship():
 
     friends = b.get("/api/social/status").get_json()["friends"]
     assert any(f["id"] == inviter["id"] for f in friends)
+
+
+def test_auto_session_expires_and_moves_to_history(client):
+    register(client, email="auto@example.edu", name="Auto")
+    client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+
+    active = client.get("/api/session/list?include_active=1")
+    assert active.status_code == 200
+    active_items = active.get_json()["items"]
+    assert len(active_items) == 1
+    assert active_items[0]["is_active"] is True
+    assert active_items[0]["is_auto"] is True
+
+    default_history_before = client.get("/api/session/list").get_json()["items"]
+    assert len(default_history_before) == 0
+
+    with client.session_transaction() as sess:
+        sess["tracking_meta"] = {
+            "session_started_at": "2020-01-01T00:00:00",
+            "last_drink_at": "2020-01-01T00:10:00",
+            "last_autosave_at": "2020-01-01T00:10:00",
+        }
+
+    state_after = client.get("/api/state")
+    assert state_after.status_code == 200
+    assert state_after.get_json()["drink_count"] == 0
+
+    history_after = client.get("/api/session/list")
+    assert history_after.status_code == 200
+    items = history_after.get_json()["items"]
+    assert len(items) == 1
+    assert items[0]["is_auto"] is True
+    assert items[0]["is_active"] is False

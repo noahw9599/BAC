@@ -88,6 +88,20 @@ def init_db(db_path: str) -> None:
             )
             """
         )
+        saved_cols = {row[1] for row in conn.execute("PRAGMA table_info(saved_sessions)").fetchall()}
+        if "is_auto" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0")
+        if "is_active" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0")
+        if "started_at" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN started_at TEXT")
+        if "last_event_at" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN last_event_at TEXT")
+        if "updated_at" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN updated_at TEXT")
+        if "ended_at" not in saved_cols:
+            conn.execute("ALTER TABLE saved_sessions ADD COLUMN ended_at TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_sessions_user_active ON saved_sessions(user_id, is_active)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_sessions_user_id ON saved_sessions(user_id)")
         conn.execute(
             """
@@ -309,11 +323,123 @@ def save_user_session(db_path: str, *, user_id: int, name: str, payload: dict[st
     payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "INSERT INTO saved_sessions (user_id, name, payload_json) VALUES (?, ?, ?)",
+            """
+            INSERT INTO saved_sessions (
+                user_id, name, payload_json, is_auto, is_active, started_at, last_event_at, updated_at, ended_at
+            )
+            VALUES (?, ?, ?, 0, 0, datetime('now'), datetime('now'), datetime('now'), datetime('now'))
+            """,
             (user_id, name.strip(), payload_json),
         )
         conn.commit()
         return int(cur.lastrowid)
+
+
+def get_active_auto_session(db_path: str, *, user_id: int) -> dict[str, Any] | None:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT id, name, started_at, last_event_at, updated_at, payload_json
+            FROM saved_sessions
+            WHERE user_id = ? AND is_auto = 1 AND is_active = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "started_at": row["started_at"],
+        "last_event_at": row["last_event_at"],
+        "updated_at": row["updated_at"],
+        "payload_json": row["payload_json"],
+    }
+
+
+def upsert_auto_session(
+    db_path: str,
+    *,
+    user_id: int,
+    name: str,
+    payload: dict[str, Any],
+    event_time_iso: str,
+    touch_last_event: bool,
+) -> int:
+    payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        active = conn.execute(
+            """
+            SELECT id
+            FROM saved_sessions
+            WHERE user_id = ? AND is_auto = 1 AND is_active = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if active is None:
+            cur = conn.execute(
+                """
+                INSERT INTO saved_sessions (
+                    user_id, name, payload_json, is_auto, is_active, started_at, last_event_at, updated_at, ended_at
+                )
+                VALUES (?, ?, ?, 1, 1, ?, ?, ?, NULL)
+                """,
+                (user_id, name.strip(), payload_json, event_time_iso, event_time_iso, event_time_iso),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+        if touch_last_event:
+            conn.execute(
+                """
+                UPDATE saved_sessions
+                SET payload_json = ?, updated_at = ?, last_event_at = ?, name = COALESCE(NULLIF(name, ''), ?)
+                WHERE id = ?
+                """,
+                (payload_json, event_time_iso, event_time_iso, name.strip(), int(active["id"])),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE saved_sessions
+                SET payload_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (payload_json, event_time_iso, int(active["id"])),
+            )
+        conn.commit()
+        return int(active["id"])
+
+
+def finalize_active_auto_session(db_path: str, *, user_id: int, ended_at_iso: str | None = None) -> bool:
+    ended = ended_at_iso or "datetime('now')"
+    with sqlite3.connect(db_path) as conn:
+        if ended_at_iso:
+            cur = conn.execute(
+                """
+                UPDATE saved_sessions
+                SET is_active = 0, ended_at = ?, updated_at = ?
+                WHERE user_id = ? AND is_auto = 1 AND is_active = 1
+                """,
+                (ended_at_iso, ended_at_iso, user_id),
+            )
+        else:
+            cur = conn.execute(
+                """
+                UPDATE saved_sessions
+                SET is_active = 0, ended_at = datetime('now'), updated_at = datetime('now')
+                WHERE user_id = ? AND is_auto = 1 AND is_active = 1
+                """,
+                (user_id,),
+            )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def list_user_sessions(
@@ -322,15 +448,22 @@ def list_user_sessions(
     user_id: int,
     limit: int = 200,
     session_date: str | None = None,
+    include_active: bool = False,
 ) -> list[dict[str, Any]]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
+        active_sql = "" if include_active else "AND COALESCE(is_active, 0) = 0"
         if session_date:
             rows = conn.execute(
                 """
-                SELECT id, name, created_at, payload_json, date(created_at) AS session_date
+                SELECT id, name, created_at, payload_json, date(created_at) AS session_date,
+                       COALESCE(is_auto, 0) AS is_auto, COALESCE(is_active, 0) AS is_active,
+                       started_at, last_event_at, ended_at
                 FROM saved_sessions
                 WHERE user_id = ? AND date(created_at) = ?
+                """
+                + active_sql
+                + """
                 ORDER BY rowid DESC
                 LIMIT ?
                 """,
@@ -339,9 +472,14 @@ def list_user_sessions(
         else:
             rows = conn.execute(
                 """
-                SELECT id, name, created_at, payload_json, date(created_at) AS session_date
+                SELECT id, name, created_at, payload_json, date(created_at) AS session_date,
+                       COALESCE(is_auto, 0) AS is_auto, COALESCE(is_active, 0) AS is_active,
+                       started_at, last_event_at, ended_at
                 FROM saved_sessions
                 WHERE user_id = ?
+                """
+                + active_sql
+                + """
                 ORDER BY rowid DESC
                 LIMIT ?
                 """,
@@ -362,6 +500,11 @@ def list_user_sessions(
                 "created_at": row["created_at"],
                 "session_date": row["session_date"],
                 "drink_count": len(events) if isinstance(events, list) else 0,
+                "is_auto": bool(row["is_auto"]),
+                "is_active": bool(row["is_active"]),
+                "started_at": row["started_at"],
+                "last_event_at": row["last_event_at"],
+                "ended_at": row["ended_at"],
             }
         )
     return out
@@ -375,6 +518,7 @@ def list_session_dates(db_path: str, *, user_id: int, limit: int = 120) -> list[
             SELECT date(created_at) AS session_date, COUNT(*) AS session_count
             FROM saved_sessions
             WHERE user_id = ?
+              AND COALESCE(is_active, 0) = 0
             GROUP BY date(created_at)
             ORDER BY session_date DESC
             LIMIT ?

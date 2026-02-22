@@ -47,6 +47,9 @@ from bac_app.auth_store import (
     create_group_alert,
     get_group_snapshot_by_guardian_token,
     maybe_create_threshold_alert,
+    get_active_auto_session,
+    upsert_auto_session,
+    finalize_active_auto_session,
     upsert_presence,
     list_guardian_links,
     revoke_guardian_link,
@@ -76,6 +79,10 @@ MAX_COUNT = 20.0
 MAX_HOURS_AGO = 24.0
 SESSION_KEY = "bac_session"
 AUTH_USER_KEY = "auth_user_id"
+TRACKING_META_KEY = "tracking_meta"
+INACTIVITY_EXPIRE_HOURS = 3.0
+MAX_ACTIVE_SESSION_HOURS = 12.0
+AUTOSAVE_INTERVAL_MINUTES = 5.0
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
 DEFAULT_AUTH_DB_PATH = str(Path("instance") / "app.db")
@@ -209,6 +216,113 @@ def set_session(model: Session | None):
         flask_session.pop(SESSION_KEY, None)
         return
     flask_session[SESSION_KEY] = _session_to_cookie(model)
+
+
+def _now_iso() -> str:
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _hours_since(iso_value: str | None) -> float | None:
+    dt = _parse_iso(iso_value)
+    if dt is None:
+        return None
+    return (datetime.now() - dt).total_seconds() / 3600.0
+
+
+def _minutes_since(iso_value: str | None) -> float | None:
+    dt = _parse_iso(iso_value)
+    if dt is None:
+        return None
+    return (datetime.now() - dt).total_seconds() / 60.0
+
+
+def _get_tracking_meta() -> dict[str, Any]:
+    raw = flask_session.get(TRACKING_META_KEY)
+    return raw if isinstance(raw, dict) else {}
+
+
+def _set_tracking_meta(meta: dict[str, Any] | None) -> None:
+    if not meta:
+        flask_session.pop(TRACKING_META_KEY, None)
+        return
+    flask_session[TRACKING_META_KEY] = meta
+
+
+def _default_auto_session_name(now_dt: datetime | None = None) -> str:
+    dt = now_dt or datetime.now()
+    return dt.strftime("%a %b %d - %I:%M %p")
+
+
+def _touch_tracking_meta(*, on_drink: bool = False, reset: bool = False) -> dict[str, Any]:
+    if reset:
+        _set_tracking_meta(None)
+        return {}
+    now = _now_iso()
+    meta = _get_tracking_meta()
+    if not meta.get("session_started_at"):
+        meta["session_started_at"] = now
+    if on_drink:
+        meta["last_drink_at"] = now
+    meta["last_autosave_at"] = now
+    _set_tracking_meta(meta)
+    return meta
+
+
+def _record_auto_session(user_id: int, model: Session, *, touch_last_event: bool) -> None:
+    _ensure_auth_db()
+    meta = _get_tracking_meta()
+    event_time_iso = _now_iso()
+    if touch_last_event:
+        meta["last_drink_at"] = event_time_iso
+    if not meta.get("session_started_at"):
+        meta["session_started_at"] = event_time_iso
+    meta["last_autosave_at"] = event_time_iso
+    _set_tracking_meta(meta)
+    upsert_auto_session(
+        _auth_db_path(),
+        user_id=user_id,
+        name=_default_auto_session_name(),
+        payload=_session_to_cookie(model),
+        event_time_iso=event_time_iso,
+        touch_last_event=touch_last_event,
+    )
+
+
+def _finalize_auto_session_and_reset(user_id: int, model: Session | None) -> None:
+    _ensure_auth_db()
+    finalize_active_auto_session(_auth_db_path(), user_id=user_id, ended_at_iso=_now_iso())
+    if model is not None:
+        set_session(Session(weight_lb=model.weight_lb, is_male=model.is_male))
+    _set_tracking_meta(None)
+
+
+def _expire_current_session_if_needed(user_id: int, model: Session | None) -> bool:
+    if model is None or not model.events:
+        return False
+    meta = _get_tracking_meta()
+    _ensure_auth_db()
+    active = get_active_auto_session(_auth_db_path(), user_id=user_id)
+    started_iso = meta.get("session_started_at") or (active["started_at"] if active else None)
+    last_drink_iso = meta.get("last_drink_at") or (active["last_event_at"] if active else None)
+    inactive_h = _hours_since(last_drink_iso) if last_drink_iso else None
+    age_h = _hours_since(started_iso) if started_iso else None
+    expired = bool(
+        (inactive_h is not None and inactive_h >= INACTIVITY_EXPIRE_HOURS)
+        or (age_h is not None and age_h >= MAX_ACTIVE_SESSION_HOURS)
+    )
+    if not expired:
+        return False
+    _finalize_auto_session_and_reset(user_id, model)
+    return True
 
 
 def _require_user_id() -> int | None:
@@ -710,21 +824,30 @@ def api_favorites():
 
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
-    if _require_user_id() is None:
+    user_id = _require_user_id()
+    if user_id is None:
         return _auth_required_error()
 
     data = request.get_json() or {}
     weight = _clamp_float(data.get("weight_lb"), 160.0, MIN_WEIGHT_LB, MAX_WEIGHT_LB)
     is_male = _parse_bool(data.get("is_male"), default=True)
     set_session(Session(weight_lb=weight, is_male=is_male))
+    _set_tracking_meta(None)
+    _ensure_auth_db()
+    finalize_active_auto_session(_auth_db_path(), user_id=user_id)
     return jsonify({"ok": True, "weight_lb": weight, "is_male": is_male})
 
 
 @app.route("/api/drink", methods=["POST"])
 def api_drink():
-    if _require_user_id() is None:
+    user_id = _require_user_id()
+    if user_id is None:
         return _auth_required_error()
 
+    model = get_session()
+    if model is None:
+        return jsonify({"error": "Set weight and sex first"}), 400
+    _expire_current_session_if_needed(user_id, model)
     model = get_session()
     if model is None:
         return jsonify({"error": "Set weight and sex first"}), 400
@@ -737,12 +860,13 @@ def api_drink():
         catalog_id = data["catalog_id"]
         model.add_drink_catalog(hours_ago, catalog_id, count)
         _ensure_auth_db()
-        track_favorite_drink(_auth_db_path(), user_id=_require_user_id(), catalog_id=catalog_id)
+        track_favorite_drink(_auth_db_path(), user_id=user_id, catalog_id=catalog_id)
     else:
         drink_key = data.get("drink_key", "beer")
         model.add_drink_ago(hours_ago, drink_key, count)
 
     set_session(model)
+    _record_auto_session(user_id, model, touch_last_event=True)
     return jsonify({"ok": True})
 
 
@@ -753,6 +877,8 @@ def api_state():
         return jsonify({"authenticated": False, **_empty_state()})
 
     model = get_session()
+    if _expire_current_session_if_needed(user_id, model):
+        model = get_session()
     hours_until_target = request.args.get("hours_until_target", type=float)
 
     if model is None:
@@ -777,6 +903,11 @@ def api_state():
 
     bac_now = round(model.bac_now(0.0), 4)
     _ensure_auth_db()
+    if events:
+        meta = _get_tracking_meta()
+        mins_since_save = _minutes_since(meta.get("last_autosave_at"))
+        if mins_since_save is None or mins_since_save >= AUTOSAVE_INTERVAL_MINUTES:
+            _record_auto_session(user_id, model, touch_last_event=False)
     upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=len(events))
     maybe_create_threshold_alert(_auth_db_path(), user_id=user_id, bac_now=bac_now)
     one_more_events = list(model.events_bac) + [(0.0, 14.0)]
@@ -829,13 +960,14 @@ def api_hangover_plan():
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
-    if _require_user_id() is None:
+    user_id = _require_user_id()
+    if user_id is None:
         return _auth_required_error()
 
     model = get_session()
     if model is None:
         return jsonify({"ok": True})
-    set_session(Session(weight_lb=model.weight_lb, is_male=model.is_male))
+    _finalize_auto_session_and_reset(user_id, model)
     return jsonify({"ok": True})
 
 
@@ -903,10 +1035,11 @@ def api_session_list():
 
     _ensure_auth_db()
     session_date = request.args.get("date", type=str)
+    include_active = _parse_bool(request.args.get("include_active"), default=False)
     if session_date and not _is_valid_date_yyyy_mm_dd(session_date):
         return jsonify({"error": "date must be YYYY-MM-DD"}), 400
 
-    items = list_user_sessions(_auth_db_path(), user_id=user_id, session_date=session_date)
+    items = list_user_sessions(_auth_db_path(), user_id=user_id, session_date=session_date, include_active=include_active)
     return jsonify({"items": items})
 
 

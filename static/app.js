@@ -1809,4 +1809,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     showAllSocialAlerts = !showAllSocialAlerts;
     renderGroupSnapshot();
   });
+
+  // Keep current session state fresh so auto-save and expiry rules run even when user is idle.
+  window.setInterval(() => {
+    if (!currentUser) return;
+    refreshState().catch(() => {});
+  }, 60 * 1000);
 });
