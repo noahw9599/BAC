@@ -2,6 +2,16 @@
 
 Mobile-first BAC tracking web app focused on real-time safety decisions, session analytics, and group coordination.
 
+Live Demo: https://bac-tracker-web.onrender.com
+
+Quick Navigation:
+- Live Demo: https://bac-tracker-web.onrender.com
+- Quick Demo Flow: `#quick-demo-60-seconds`
+- Architecture: `#architecture-high-level`
+- Local Setup: `#local-development`
+- Tests: `#test-commands`
+- Deployment: `#deployment-render`
+
 Built as an internship portfolio project to demonstrate:
 - end-to-end product ownership (backend + frontend + deployment)
 - practical system design for stateful user workflows
