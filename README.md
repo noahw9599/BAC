@@ -167,6 +167,17 @@ python -m pytest -q -p no:debugging
 3. Select this repo
 4. Deploy
 
+### Render Free Tier Persistence (Recommended)
+
+If you are on Render free tier and cannot attach a disk, use managed Postgres:
+
+1. Create a Render Postgres database.
+2. In your web service `Environment`, set:
+   - `APP_DB_PATH=<your Postgres connection string>`
+   - or `DATABASE_URL=<your Postgres connection string>` (app supports this fallback)
+3. Keep `SESSION_COOKIE_SECURE=1` for HTTPS deployments.
+4. Do not use `/tmp/*.db` for auth/session data if you need persistence.
+
 For feedback feed:
 
 `https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`

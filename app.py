@@ -120,7 +120,11 @@ def _feedback_db_path() -> str:
 
 
 def _auth_db_path() -> str:
-    return os.environ.get("APP_DB_PATH", DEFAULT_AUTH_DB_PATH)
+    return os.environ.get("APP_DB_PATH") or os.environ.get("DATABASE_URL", DEFAULT_AUTH_DB_PATH)
+
+
+def _is_db_url(value: str) -> bool:
+    return value.startswith("postgres://") or value.startswith("postgresql://")
 
 
 def _ensure_feedback_db() -> None:
@@ -130,8 +134,10 @@ def _ensure_feedback_db() -> None:
 
 
 def _ensure_auth_db() -> None:
-    db_path = Path(_auth_db_path())
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = _auth_db_path()
+    if not _is_db_url(db_path):
+        path_obj = Path(db_path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
     init_auth_db(str(db_path))
 
 
@@ -436,7 +442,7 @@ def api_auth_register():
 def api_auth_login():
     _ensure_auth_db()
     data = request.get_json() or {}
-    email = str(data.get("email", "")).strip().lower()
+    email = str(data.get("email", data.get("login", ""))).strip().lower()
     password = str(data.get("password", "")).strip()
 
     user = authenticate_user(_auth_db_path(), email=email, password=password)

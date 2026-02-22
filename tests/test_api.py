@@ -131,6 +131,13 @@ def test_login_allows_trimmed_password_input(client):
     assert login.status_code == 200
 
 
+def test_login_allows_username_identifier(client):
+    user = register(client, email="username-login@example.edu", password="password123", name="User Login")
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"email": user["username"], "password": "password123"})
+    assert login.status_code == 200
+
+
 def test_register_trims_password(client):
     reg = client.post(
         "/api/auth/register",
