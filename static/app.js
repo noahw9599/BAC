@@ -1320,6 +1320,16 @@ async function runSosAction(kind) {
   }
 
   if (kind === "emergency") {
+    const sure = window.confirm("Call 911 now?");
+    if (!sure) {
+      setSosStatus("911 call canceled.");
+      return;
+    }
+    const finalSure = window.confirm("Final confirm: place emergency call to 911?");
+    if (!finalSure) {
+      setSosStatus("911 call canceled.");
+      return;
+    }
     window.location.href = "tel:911";
     setSosStatus("Calling emergency services...");
     return;
