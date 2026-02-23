@@ -48,10 +48,9 @@ def get_drive_advice(bac_now: float, hours_until_sober_from_now: float) -> dict:
         }
 
     return {
-        "status": "caution",
-        "title": "No BAC estimated now",
-        "message": "This estimate cannot prove you are safe or legal to drive.",
-        "action": "Only drive if you are fully sober and confident.",
+        "status": "ok",
+        "title": "No alcohol logged",
+        "message": "Estimated BAC is 0.000 right now.",
+        "action": "If you have not consumed alcohol, impairment risk is lower.",
         "legal_limit_bac": LEGAL_LIMIT_BAC,
     }
-

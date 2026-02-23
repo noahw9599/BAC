@@ -461,6 +461,14 @@ def test_drive_advice_do_not_drive_when_high_bac(client):
     assert state["drive_advice"]["status"] == "do_not_drive"
 
 
+def test_drive_advice_ok_when_no_drinks_logged(client):
+    register(client, email="nodrinks@example.edu")
+    client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+    state = client.get("/api/state").get_json()
+    assert state["drive_advice"]["status"] == "ok"
+    assert state["bac_now"] == 0
+
+
 def test_social_friend_request_and_feed_flow():
     app.config["TESTING"] = True
     a = app.test_client()
