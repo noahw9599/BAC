@@ -9,6 +9,10 @@ const API = {
   authRegister: "/api/auth/register",
   authLogin: "/api/auth/login",
   authLogout: "/api/auth/logout",
+  accountProfile: "/api/account/profile",
+  accountPrivacySummary: "/api/account/privacy-summary",
+  accountEmergencyContacts: "/api/account/emergency-contacts",
+  accountDelete: "/api/account/delete",
   sessionSave: "/api/session/save",
   sessionList: "/api/session/list",
   sessionLoad: "/api/session/load",
@@ -46,6 +50,7 @@ const MAX_FRIENDS = 12;
 let bacChart = null;
 let catalogFlat = [];
 let catalogById = {};
+let catalogByCategory = {};
 let friends = [];
 let currentUser = null;
 let serverFavorites = [];
@@ -64,6 +69,9 @@ let showAllSocialAlerts = false;
 let attemptedAutoSetup = false;
 let chartMode = "full";
 let chartPaceEnabled = false;
+let lastDeletedSessionEvent = null;
+let emergencyContacts = [];
+let selectedDrinkCategory = "all";
 
 function $(id) {
   return document.getElementById(id);
@@ -136,6 +144,9 @@ function setAuthUI(authenticated, user = null) {
     if (dateList) dateList.innerHTML = "";
     renderSocialFeed([]);
     socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
+    emergencyContacts = [];
+    renderEmergencyContacts();
+    renderAccountPrivacySummary(null);
     renderSocialStatus();
     window.location.href = "/login";
     return;
@@ -164,6 +175,60 @@ function renderMyFriendProfile() {
   el.textContent = `Your username: ${username}${inviteLink ? ` | Invite link: ${inviteLink}` : ""}`;
 }
 
+function populateAccountProfileForm() {
+  if (!currentUser) return;
+  if ($("acct-display-name")) $("acct-display-name").value = currentUser.display_name || "";
+  if ($("acct-username")) $("acct-username").value = currentUser.username || "";
+  if ($("acct-gender")) $("acct-gender").value = currentUser.is_male ? "male" : "female";
+  if ($("acct-weight") && currentUser.default_weight_lb != null) {
+    $("acct-weight").value = Math.round(currentUser.default_weight_lb);
+  }
+}
+
+function updateAccountShareStatus() {
+  const status = $("acct-share-status");
+  const btn = $("btn-acct-share-toggle");
+  const enabled = Boolean(socialState?.share_with_friends);
+  if (status) status.textContent = enabled ? "Friend sharing is ON." : "Friend sharing is OFF.";
+  if (btn) btn.textContent = enabled ? "Disable friend sharing" : "Enable friend sharing";
+}
+
+function renderAccountPrivacySummary(summary) {
+  const el = $("acct-privacy-summary");
+  if (!el) return;
+  if (!summary) {
+    el.textContent = "Privacy summary unavailable.";
+    return;
+  }
+  const friendShare = summary.share_with_friends ? "ON" : "OFF";
+  const groupShares = Number(summary.group_shares_enabled || 0);
+  const guardianLinksCount = Number(summary.active_guardian_links || 0);
+  el.textContent = `Friend sharing: ${friendShare} | Group shares enabled: ${groupShares} | Active guardian links: ${guardianLinksCount}`;
+}
+
+function renderEmergencyContacts() {
+  const list = $("emergency-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!emergencyContacts.length) {
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No emergency contacts added yet.</div></div>`;
+    return;
+  }
+  emergencyContacts.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `
+      <div class="friend-main">${item.name}</div>
+      <div class="friend-counts">${item.phone}</div>
+      <div class="friend-actions">
+        <button type="button" class="chip emergency-call" data-phone="${item.phone}">Call</button>
+        <button type="button" class="chip danger emergency-delete" data-id="${item.id}">Remove</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
 async function refreshAuth() {
   try {
     const data = await fetchJSON(API.authMe);
@@ -171,12 +236,16 @@ async function refreshAuth() {
     serverFavorites = [];
     setAuthUI(Boolean(currentUser), currentUser);
     renderMyFriendProfile();
+    populateAccountProfileForm();
     if (currentUser) {
       attemptedAutoSetup = false;
       await processPendingInviteCode();
       await loadServerFavorites();
       await loadSavedSessions();
       await loadSocial();
+      await loadAccountPrivacySummary();
+      await loadEmergencyContacts();
+      updateAccountShareStatus();
       await refreshState();
     } else {
       window.location.href = "/login";
@@ -187,6 +256,27 @@ async function refreshAuth() {
     window.location.href = "/login";
     renderMyFriendProfile();
   }
+}
+
+async function loadAccountPrivacySummary() {
+  if (!currentUser) return;
+  try {
+    const data = await fetchJSON(API.accountPrivacySummary);
+    renderAccountPrivacySummary(data.summary || null);
+  } catch (_) {
+    renderAccountPrivacySummary(null);
+  }
+}
+
+async function loadEmergencyContacts() {
+  if (!currentUser) return;
+  try {
+    const data = await fetchJSON(API.accountEmergencyContacts);
+    emergencyContacts = Array.isArray(data.contacts) ? data.contacts : [];
+  } catch (_) {
+    emergencyContacts = [];
+  }
+  renderEmergencyContacts();
 }
 
 function renderSocialStatus() {
@@ -399,6 +489,7 @@ async function loadSocial() {
   try {
     socialState = await fetchJSON(API.socialStatus);
     renderSocialStatus();
+    updateAccountShareStatus();
     const feed = await fetchJSON(API.socialFeed);
     renderSocialFeed(feed.items || []);
     const groups = await fetchJSON(API.socialGroups);
@@ -422,10 +513,92 @@ async function loadSocial() {
     activeGroupSnapshot = null;
     guardianLinks = [];
     renderSocialStatus();
+    updateAccountShareStatus();
     renderSocialFeed([]);
     renderGroupList();
     renderGroupSnapshot();
     updateOnboardingStatus();
+  }
+}
+
+async function saveAccountProfile() {
+  if (!currentUser) return;
+  const payload = {
+    display_name: $("acct-display-name")?.value?.trim() || "",
+    username: $("acct-username")?.value?.trim().toLowerCase() || "",
+    gender: $("acct-gender")?.value || "",
+    default_weight_lb: $("acct-weight")?.value || "",
+  };
+  const status = $("acct-status");
+  try {
+    const res = await fetchJSON(API.accountProfile, { method: "POST", body: JSON.stringify(payload) });
+    currentUser = res.user || currentUser;
+    setAuthStatus(`Signed in as ${currentUser.display_name || currentUser.email}`);
+    populateAccountProfileForm();
+    if (status) status.textContent = "Profile updated.";
+    await refreshState();
+  } catch (err) {
+    if (status) status.textContent = err.message;
+  }
+}
+
+async function toggleAccountSharePreference() {
+  if (!currentUser) return;
+  const next = !Boolean(socialState?.share_with_friends);
+  await fetchJSON(API.socialShare, { method: "POST", body: JSON.stringify({ enabled: next }) });
+  socialState.share_with_friends = next;
+  updateAccountShareStatus();
+  await loadAccountPrivacySummary();
+}
+
+async function addEmergencyContactFromForm() {
+  if (!currentUser) return;
+  const name = $("emergency-name")?.value?.trim() || "";
+  const phone = $("emergency-phone")?.value?.trim() || "";
+  const status = $("emergency-status");
+  try {
+    const data = await fetchJSON(API.accountEmergencyContacts, { method: "POST", body: JSON.stringify({ name, phone }) });
+    emergencyContacts = [data.contact, ...emergencyContacts];
+    renderEmergencyContacts();
+    if ($("emergency-name")) $("emergency-name").value = "";
+    if ($("emergency-phone")) $("emergency-phone").value = "";
+    if (status) status.textContent = "Emergency contact added.";
+  } catch (err) {
+    if (status) status.textContent = err.message || "Could not add contact.";
+  }
+}
+
+async function deleteEmergencyContact(contactId) {
+  if (!currentUser) return;
+  const status = $("emergency-status");
+  try {
+    await fetchJSON(`${API.accountEmergencyContacts}/${Number(contactId)}`, { method: "DELETE" });
+    emergencyContacts = emergencyContacts.filter((c) => Number(c.id) !== Number(contactId));
+    renderEmergencyContacts();
+    if (status) status.textContent = "Emergency contact removed.";
+  } catch (err) {
+    if (status) status.textContent = err.message || "Could not remove contact.";
+  }
+}
+
+async function deleteAccountFlow() {
+  if (!currentUser) return;
+  const password = $("acct-delete-password")?.value || "";
+  const confirmText = $("acct-delete-confirm")?.value || "";
+  const status = $("acct-delete-status");
+  if (status) status.textContent = "";
+
+  const ok = window.confirm("This will permanently delete your account and all data. Continue?");
+  if (!ok) return;
+  try {
+    await fetchJSON(API.accountDelete, {
+      method: "POST",
+      body: JSON.stringify({ password, confirm_text: confirmText }),
+    });
+    if (status) status.textContent = "Account deleted.";
+    window.location.href = "/login";
+  } catch (err) {
+    if (status) status.textContent = err.message || "Account delete failed.";
   }
 }
 
@@ -927,6 +1100,7 @@ function updateDriveAdvice(state) {
   const statusEl = $("drive-status");
   const msgEl = $("drive-message");
   const actionEl = $("drive-action");
+  const pillEl = $("drive-pill");
   if (!statusEl || !msgEl || !actionEl) return;
 
   const advice = state.drive_advice;
@@ -935,6 +1109,10 @@ function updateDriveAdvice(state) {
     statusEl.className = "drive-status";
     msgEl.textContent = "Log drinks to see conservative guidance.";
     actionEl.textContent = "";
+    if (pillEl) {
+      pillEl.textContent = "No data";
+      pillEl.className = "stat-value";
+    }
     return;
   }
 
@@ -942,6 +1120,40 @@ function updateDriveAdvice(state) {
   statusEl.className = `drive-status ${advice.status || ""}`;
   msgEl.textContent = advice.message || "";
   actionEl.textContent = advice.action || "";
+  if (pillEl) {
+    if (advice.status === "do_not_drive") {
+      pillEl.textContent = "Do not drive";
+      pillEl.className = "stat-value risk-high";
+    } else if (advice.status === "caution") {
+      pillEl.textContent = "Use caution";
+      pillEl.className = "stat-value risk-mid";
+    } else {
+      pillEl.textContent = "Lower risk";
+      pillEl.className = "stat-value risk-low";
+    }
+  }
+}
+
+function updateRiskAlert(state) {
+  const card = $("risk-alert");
+  const msg = $("risk-alert-message");
+  if (!card || !msg) return;
+  const bac = Number(state?.bac_now || 0);
+  if (!Number.isFinite(bac) || bac < 0.08) {
+    card.style.display = "none";
+    msg.textContent = "";
+    return;
+  }
+
+  let text = "BAC is above 0.08. Do not drive. Hydrate and arrange a safe ride.";
+  if (bac >= 0.12) {
+    text = "High-risk BAC detected. Stay with trusted people, stop drinking, and consider emergency support now.";
+  }
+  if (bac >= 0.16) {
+    text = "Critical BAC risk. Call emergency services now if symptoms worsen (vomiting, confusion, unresponsiveness).";
+  }
+  msg.textContent = text;
+  card.style.display = "block";
 }
 
 function formatHoursShort(hours) {
@@ -970,6 +1182,7 @@ function renderSessionEvents(state) {
   list.innerHTML = "";
   if (!items.length) {
     list.innerHTML = `<div class="friend-row"><div class="friend-counts">No drinks logged yet.</div></div>`;
+    renderEventUndo();
     return;
   }
   items.forEach((ev) => {
@@ -989,6 +1202,18 @@ function renderSessionEvents(state) {
     `;
     list.appendChild(row);
   });
+  renderEventUndo();
+}
+
+function renderEventUndo() {
+  const el = $("events-undo");
+  if (!el) return;
+  if (!lastDeletedSessionEvent || Date.now() > lastDeletedSessionEvent.expiresAt) {
+    lastDeletedSessionEvent = null;
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = `Removed a drink entry. <button type="button" class="chip" id="btn-undo-event-delete">Undo</button>`;
 }
 
 async function saveSessionEvent(index) {
@@ -1005,10 +1230,40 @@ async function saveSessionEvent(index) {
 }
 
 async function deleteSessionEvent(index) {
-  await fetchJSON(API.sessionEvents, {
+  const data = await fetchJSON(API.sessionEvents, {
     method: "PATCH",
     body: JSON.stringify({ index: Number(index), delete: true }),
   });
+  if (data?.deleted_event) {
+    lastDeletedSessionEvent = {
+      event: data.deleted_event,
+      index: data.deleted_index,
+      expiresAt: Date.now() + 120000,
+    };
+  }
+  renderEventUndo();
+  window.setTimeout(() => renderEventUndo(), 121000);
+  await refreshState();
+}
+
+async function undoDeleteSessionEvent() {
+  if (!lastDeletedSessionEvent?.event) return;
+  const payload = {
+    index: Number(lastDeletedSessionEvent.index ?? 0),
+    restore_event: {
+      hours_ago: lastDeletedSessionEvent.event.hours_ago,
+      standard_drinks: lastDeletedSessionEvent.event.standard_drinks,
+      calories: lastDeletedSessionEvent.event.calories,
+      carbs_g: lastDeletedSessionEvent.event.carbs_g,
+      sugar_g: lastDeletedSessionEvent.event.sugar_g,
+    },
+  };
+  await fetchJSON(API.sessionEvents, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  lastDeletedSessionEvent = null;
+  renderEventUndo();
   await refreshState();
 }
 
@@ -1064,7 +1319,19 @@ async function runSosAction(kind) {
     return;
   }
 
+  if (kind === "emergency") {
+    window.location.href = "tel:911";
+    setSosStatus("Calling emergency services...");
+    return;
+  }
+
   if (kind === "friend") {
+    if (emergencyContacts.length) {
+      const primary = emergencyContacts[0];
+      window.location.href = `tel:${primary.phone}`;
+      setSosStatus(`Calling ${primary.name}...`);
+      return;
+    }
     const firstFriend = (socialState.friends || [])[0];
     if (firstFriend?.email) {
       window.location.href = `mailto:${firstFriend.email}?subject=Safety check`;
@@ -1111,6 +1378,7 @@ async function revokeAllPrivacy() {
   const status = $("privacy-status");
   if (status) status.textContent = "All sharing and guardian links revoked.";
   await loadSocial();
+  await loadAccountPrivacySummary();
 }
 
 async function loadSessionDebrief() {
@@ -1187,7 +1455,7 @@ function updateChartInsights(state) {
   const eta = state?.chart_data?.eta || {};
   if (hints) {
     const legal = eta.below_legal_hours == null ? "Below 0.08: now/already low" : `Below 0.08 in ~${formatHoursShort(eta.below_legal_hours)}`;
-    const sober = eta.sober_hours == null ? "Sober ETA unavailable" : `Sober in ~${formatHoursShort(eta.sober_hours)}`;
+    const sober = eta.sober_hours == null ? "Sober ETA unavailable" : `Sober at ~${formatSoberAt(eta.sober_hours)}`;
     hints.textContent = `${legal} | ${sober}`;
   }
 }
@@ -1209,7 +1477,7 @@ function getChartCurveByMode(state) {
   if (chartMode === "last6") return base.filter((p) => (p.t ?? 999) >= -6);
   if (chartMode === "untilSober") {
     let cutoff = state?.hours_until_sober_from_now ?? 24;
-    cutoff = Math.max(0, Math.min(24, cutoff));
+    cutoff = Math.max(0, Math.min(48, cutoff));
     return base.filter((p) => (p.t ?? -999) <= cutoff);
   }
   return base;
@@ -1235,6 +1503,12 @@ function renderChart(state) {
   const basePoints = curve.map((d) => ({ x: d.t, y: d.bac }));
   const pacePoints = (state.chart_data?.pace_curve || []).map((p) => ({ x: p.t, y: p.bac }));
   const markers = (state.chart_data?.event_markers || []).map((p) => ({ x: p.t, y: p.bac }));
+  const xMin = Math.min(...basePoints.map((p) => p.x), -6);
+  const xMax = Math.max(
+    ...basePoints.map((p) => p.x),
+    ...(pacePoints.length ? pacePoints.map((p) => p.x) : [0]),
+    12
+  );
 
   const datasets = [
     {
@@ -1249,7 +1523,7 @@ function renderChart(state) {
     },
     {
       label: "0.08 legal limit",
-      data: [{ x: -6, y: 0.08 }, { x: 24, y: 0.08 }],
+      data: [{ x: xMin, y: 0.08 }, { x: xMax, y: 0.08 }],
       borderColor: "#ef4444",
       borderDash: [6, 4],
       pointRadius: 0,
@@ -1300,8 +1574,8 @@ function renderChart(state) {
     scales: {
       x: {
         type: "linear",
-        min: Math.min(...basePoints.map((p) => p.x), -6),
-        max: Math.max(...basePoints.map((p) => p.x), 8),
+        min: xMin,
+        max: xMax,
         title: { display: true, text: "Hours (0 = now)" },
         grid: { color: "rgba(255,255,255,0.06)" },
         ticks: { color: "#94a3b8" },
@@ -1392,6 +1666,7 @@ function renderSavedSessions(items) {
   const filtered = selectedDate
     ? (items || []).filter((item) => item.session_date === selectedDate)
     : (items || []);
+  renderHistorySummary(filtered);
 
   renderSessionDateChips();
 
@@ -1415,6 +1690,27 @@ function renderSavedSessions(items) {
     `;
     list.appendChild(row);
   });
+}
+
+function renderHistorySummary(items) {
+  const totalEl = $("hist-total-sessions");
+  const avgEl = $("hist-avg-drinks");
+  const maxEl = $("hist-max-drinks");
+  if (!totalEl || !avgEl || !maxEl) return;
+  const total = Array.isArray(items) ? items.length : 0;
+  if (!total) {
+    totalEl.textContent = "0";
+    avgEl.textContent = "0.0";
+    maxEl.textContent = "0";
+    return;
+  }
+  const drinks = items.map((x) => Number(x.drink_count || 0));
+  const sum = drinks.reduce((a, b) => a + b, 0);
+  const avg = sum / total;
+  const max = Math.max(...drinks);
+  totalEl.textContent = String(total);
+  avgEl.textContent = avg.toFixed(1);
+  maxEl.textContent = String(max);
 }
 
 async function loadSavedSessions() {
@@ -1489,36 +1785,68 @@ function getQuickAddIds() {
 async function loadCatalog() {
   const { flat, by_category } = await fetchJSON(API.catalog);
   catalogFlat = flat || [];
-  const sel = $("drink-catalog");
   const lastId = getLastDrink();
-
-  if (by_category) {
-    const order = ["beer", "seltzer", "wine", "liquor", "cocktail", "other"];
-    sel.innerHTML = "";
-    const cats = order.filter((c) => by_category[c]);
-    let firstOpt = null;
-    for (const cat of cats) {
-      const optgroup = document.createElement("optgroup");
-      optgroup.label = cat.charAt(0).toUpperCase() + cat.slice(1);
-      for (const d of by_category[cat]) {
-        const opt = document.createElement("option");
-        opt.value = d.id;
-        opt.textContent = d.name;
-        optgroup.appendChild(opt);
-        if (!firstOpt) firstOpt = opt;
-        if (d.id === lastId) opt.selected = true;
-      }
-      sel.appendChild(optgroup);
-    }
-    if (!lastId && firstOpt) firstOpt.selected = true;
-  } else if (catalogFlat.length) {
-    sel.innerHTML = catalogFlat.map((d) => `<option value="${d.id}">${d.name}</option>`).join("");
-    if (lastId) sel.value = lastId;
-  }
 
   catalogById = {};
   (flat || []).forEach((d) => (catalogById[d.id] = d));
+  catalogByCategory = by_category || {};
+  renderCatalogOptions(lastId);
   refreshQuickAdd();
+}
+
+function normalizeSearchText(text) {
+  return String(text || "").trim().toLowerCase();
+}
+
+function renderCatalogOptions(preferredId = null) {
+  const sel = $("drink-catalog");
+  if (!sel) return;
+  const q = normalizeSearchText($("drink-search")?.value || "");
+  const order = ["beer", "seltzer", "wine", "liquor", "cocktail", "other"];
+  sel.innerHTML = "";
+  let optionCount = 0;
+  let preferredFound = false;
+  let firstOption = null;
+
+  for (const cat of order) {
+    if (selectedDrinkCategory !== "all" && selectedDrinkCategory !== cat) continue;
+    const items = Array.isArray(catalogByCategory[cat]) ? catalogByCategory[cat] : [];
+    const matches = items.filter((d) => {
+      if (!q) return true;
+      const row = `${d.name || ""} ${d.brand || ""} ${cat}`.toLowerCase();
+      return row.includes(q);
+    });
+    if (!matches.length) continue;
+
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = cat.charAt(0).toUpperCase() + cat.slice(1);
+    matches.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    for (const d of matches) {
+      const opt = document.createElement("option");
+      opt.value = d.id;
+      const brand = d.brand ? ` - ${d.brand}` : "";
+      opt.textContent = `${d.name}${brand}`;
+      optgroup.appendChild(opt);
+      optionCount += 1;
+      if (!firstOption) firstOption = opt;
+      if (preferredId && d.id === preferredId) {
+        opt.selected = true;
+        preferredFound = true;
+      }
+    }
+    sel.appendChild(optgroup);
+  }
+
+  if (!optionCount) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No drinks found. Try a different search.";
+    opt.disabled = true;
+    opt.selected = true;
+    sel.appendChild(opt);
+    return;
+  }
+  if (!preferredFound && firstOption) firstOption.selected = true;
 }
 
 function refreshQuickAdd() {
@@ -1659,6 +1987,7 @@ async function refreshState() {
 
   updateNightTools(state);
   updateDriveAdvice(state);
+  updateRiskAlert(state);
   updateChartInsights(state);
   updatePacePrediction(state);
   renderSessionEvents(state);
@@ -1708,6 +2037,36 @@ document.addEventListener("DOMContentLoaded", async () => {
       setAuthStatus(`Logout failed: ${err.message}`);
     }
   });
+  $("btn-acct-save")?.addEventListener("click", async () => {
+    await saveAccountProfile();
+  });
+  $("btn-acct-share-toggle")?.addEventListener("click", async () => {
+    try {
+      await toggleAccountSharePreference();
+    } catch (err) {
+      const s = $("acct-share-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-emergency-add")?.addEventListener("click", async () => {
+    await addEmergencyContactFromForm();
+  });
+  $("btn-account-delete")?.addEventListener("click", async () => {
+    await deleteAccountFlow();
+  });
+  $("emergency-list")?.addEventListener("click", async (e) => {
+    const callBtn = e.target.closest(".emergency-call");
+    if (callBtn) {
+      const phone = callBtn.dataset.phone;
+      if (phone) window.location.href = `tel:${phone}`;
+      return;
+    }
+    const delBtn = e.target.closest(".emergency-delete");
+    if (!delBtn) return;
+    const ok = window.confirm("Remove this emergency contact?");
+    if (!ok) return;
+    await deleteEmergencyContact(delBtn.dataset.id);
+  });
 
   $("btn-setup").addEventListener("click", setup);
 
@@ -1723,6 +2082,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("btn-reset").addEventListener("click", resetDrinks);
+  $("drink-search")?.addEventListener("input", () => {
+    renderCatalogOptions($("drink-catalog")?.value || getLastDrink());
+  });
+  $("drink-filter-chips")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".drink-filter");
+    if (!btn) return;
+    selectedDrinkCategory = btn.dataset.category || "all";
+    document.querySelectorAll(".drink-filter").forEach((x) => x.classList.remove("active"));
+    btn.classList.add("active");
+    renderCatalogOptions($("drink-catalog")?.value || getLastDrink());
+  });
 
   $("btn-add-water")?.addEventListener("click", async () => {
     addWaterOz(8);
@@ -1817,9 +2187,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
   $("btn-sos-ride")?.addEventListener("click", () => runSosAction("ride"));
+  $("btn-sos-911")?.addEventListener("click", () => runSosAction("emergency"));
   $("btn-sos-call-friend")?.addEventListener("click", () => runSosAction("friend"));
   $("btn-sos-share-location")?.addEventListener("click", () => runSosAction("location"));
   $("btn-sos-campus-help")?.addEventListener("click", () => runSosAction("campus"));
+  $("btn-drive-ride")?.addEventListener("click", () => runSosAction("ride"));
+  $("btn-drive-911")?.addEventListener("click", () => runSosAction("emergency"));
+  $("btn-drive-share")?.addEventListener("click", () => runSosAction("location"));
+  $("btn-emergency-911")?.addEventListener("click", () => runSosAction("emergency"));
+  $("btn-risk-ride")?.addEventListener("click", () => runSosAction("ride"));
   $("btn-session-debrief")?.addEventListener("click", async () => {
     await loadSessionDebrief();
   });
@@ -1927,6 +2303,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       } catch (err) {
         setSessionStatus(`Delete failed: ${err.message}`);
       }
+    }
+  });
+  $("events-undo")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest("#btn-undo-event-delete");
+    if (!btn) return;
+    try {
+      await undoDeleteSessionEvent();
+      setSessionStatus("Drink entry restored.");
+    } catch (err) {
+      setSessionStatus(`Undo failed: ${err.message}`);
     }
   });
 

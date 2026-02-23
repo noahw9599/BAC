@@ -21,6 +21,7 @@
 body {
   margin: 0;
   font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  font-size: 17px;
   background: radial-gradient(1200px 700px at 10% -20%, #1b2f57 0%, var(--bg) 45%) fixed;
   color: var(--text);
   line-height: 1.5;
@@ -32,7 +33,7 @@ body {
 .container {
   max-width: 540px;
   margin: 0 auto;
-  padding: var(--space-2) var(--space-2) 5.5rem;
+  padding: 0.9rem var(--space-2) 6.2rem;
 }
 
 header {
@@ -66,6 +67,23 @@ header h1 {
   font-weight: 600;
 }
 
+.legal-card h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+}
+
+.legal-card h2 {
+  margin: 1rem 0 0.35rem;
+}
+
+.legal-link {
+  margin-top: 0.65rem;
+}
+
+.legal-link a {
+  color: #7dd3fc;
+}
+
 /* ---- Quick add: one tap = add 1 now ---- */
 .quick-add {
   display: grid;
@@ -75,9 +93,9 @@ header h1 {
 }
 
 .quick-btn {
-  min-height: 48px;
-  padding: 0.75rem 0.5rem;
-  font-size: 0.95rem;
+  min-height: 58px;
+  padding: 0.85rem 0.55rem;
+  font-size: 1.02rem;
   font-weight: 500;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -115,21 +133,21 @@ header h1 {
   z-index: 40;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.35rem;
-  padding: 0.55rem 0.7rem calc(0.55rem + env(safe-area-inset-bottom, 0));
+  gap: 0.45rem;
+  padding: 0.6rem 0.7rem calc(0.6rem + env(safe-area-inset-bottom, 0));
   background: rgba(15, 23, 42, 0.95);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(6px);
 }
 
 .tab-btn {
-  min-height: 42px;
+  min-height: 46px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: #0b1326;
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
 
 .tab-btn.active {
@@ -168,6 +186,23 @@ header h1 {
   border-radius: 10px;
   background: var(--bg);
   color: var(--text);
+}
+
+.add-custom input[type="search"] {
+  width: 100%;
+  min-height: 50px;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.drink-filter-chips {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
 }
 
 .add-buttons {
@@ -212,8 +247,9 @@ header h1 {
 }
 
 .chip {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
+  padding: 0.5rem 0.85rem;
+  min-height: 42px;
+  font-size: 0.93rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -234,13 +270,13 @@ header h1 {
 
 /* ---- Buttons ---- */
 .btn {
-  padding: 0.62rem 1.05rem;
+  padding: 0.75rem 1.05rem;
   border: none;
   border-radius: 10px;
-  font-size: 0.96rem;
+  font-size: 1rem;
   font-weight: 500;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 50px;
 }
 
 .btn-block {
@@ -269,40 +305,119 @@ header h1 {
   background: #475569;
 }
 
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+.btn-danger:hover, .btn-danger:active {
+  background: #b91c1c;
+}
+
 /* ---- Stats ---- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0.45rem;
-  margin: var(--space-2) 0;
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border);
+  gap: 0.5rem;
+  margin: 0.6rem 0;
 }
 
-@media (max-width: 400px) {
-  .stats { grid-template-columns: repeat(3, 1fr); }
+.stats-primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stats-secondary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 420px) {
+  .stats-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .stat {
   text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.5rem 0.35rem;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.stat-primary {
+  background: rgba(8, 47, 73, 0.3);
+  border-color: rgba(56, 189, 248, 0.35);
 }
 
 .stat-value {
   display: block;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--primary);
+  line-height: 1.2;
 }
 
 .stat-label {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 
+.risk-high {
+  color: #fca5a5;
+}
+
+.risk-mid {
+  color: #fcd34d;
+}
+
+.risk-low {
+  color: #86efac;
+}
+
 #bac-now.over-limit {
   color: var(--danger);
+}
+
+.stats-secondary .stat-value {
+  font-size: 1.2rem;
+}
+
+.safety-banner {
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.25);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.safety-banner-title {
+  margin: 0 0 0.15rem;
+  color: #fecaca;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.safety-banner-body {
+  margin: 0;
+  color: #fee2e2;
+  font-size: 0.82rem;
+}
+
+.risk-alert {
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.2);
+}
+
+.risk-alert h3 {
+  margin: 0 0 0.35rem;
+  color: #fecaca;
+}
+
+.danger-zone {
+  border-color: rgba(248, 113, 113, 0.45);
 }
 
 /* ---- Hangover ---- */
@@ -410,7 +525,7 @@ header h1 {
 .mini-help {
   margin: 0;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.92rem;
 }
 
 .btn-add-water {
@@ -443,13 +558,13 @@ header h1 {
 }
 
 .friend-add input {
-  min-height: 44px;
+  min-height: 50px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
   color: var(--text);
   padding: 0.5rem 0.65rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .group-summary {
@@ -467,18 +582,18 @@ header h1 {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg);
-  padding: 0.55rem;
+  padding: 0.7rem;
 }
 
 .friend-main {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.97rem;
 }
 
 .friend-counts {
   margin-top: 0.1rem;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 .friend-actions {
@@ -489,8 +604,8 @@ header h1 {
 }
 
 .friend-actions .chip {
-  font-size: 0.75rem;
-  padding: 0.28rem 0.55rem;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.75rem;
 }
 
 .friend-actions .chip.danger {
@@ -506,6 +621,10 @@ header h1 {
 .drive-card h3 {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
+}
+
+.drive-card .friend-actions .btn {
+  flex: 1 1 140px;
 }
 
 .chart-card h3 {
@@ -538,6 +657,7 @@ header h1 {
   margin: 0.55rem 0 0.2rem;
   font-weight: 700;
   color: #fbbf24;
+  font-size: 1.2rem;
 }
 
 .drive-status.do_not_drive {
@@ -551,13 +671,13 @@ header h1 {
 .drive-message {
   margin: 0;
   color: var(--text);
-  font-size: 0.88rem;
+  font-size: 0.96rem;
 }
 
 .drive-action {
   margin: 0.28rem 0 0;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.9rem;
 }
 
 .feedback textarea {
@@ -648,12 +768,18 @@ label {
 
 label input, label select {
   padding: 0.5rem 0.75rem;
-  min-height: 44px;
+  min-height: 50px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
   color: var(--text);
   font-size: 1rem;
+}
+
+details > summary {
+  cursor: pointer;
+  font-size: 0.98rem;
+  font-weight: 600;
 }
 
 .accordion {

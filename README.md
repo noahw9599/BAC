@@ -7,6 +7,7 @@ Live Demo: https://bac-tracker-web.onrender.com
 Quick Navigation:
 - Live Demo: https://bac-tracker-web.onrender.com
 - Quick Demo Flow: `#quick-demo-60-seconds`
+- Pilot checklist: `PILOT_READINESS_CHECKLIST.md`
 - Architecture: `#architecture-high-level`
 - Local Setup: `#local-development`
 - Tests: `#test-commands`
@@ -181,6 +182,18 @@ If you are on Render free tier and cannot attach a disk, use managed Postgres:
 For feedback feed:
 
 `https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
+
+### Production DB Verification (Before Pilot)
+
+Use this admin check to confirm your deployment can initialize both auth/session and feedback storage:
+
+`https://<your-app>.onrender.com/api/admin/db-check?token=<ADMIN_TOKEN>`
+
+Expected:
+- `"ok": true`
+- `"db_engine": "postgres"` (recommended for persistent production data)
+- `"checks.auth_db_init_ok": true`
+- `"checks.feedback_db_init_ok": true`
 
 ## Safety + Scope Notes
 

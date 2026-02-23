@@ -52,6 +52,24 @@ def test_healthz(client):
     assert res.get_json() == {"ok": True}
 
 
+def test_privacy_page_is_public(client):
+    res = client.get("/privacy")
+    assert res.status_code == 200
+    assert "Privacy Policy" in res.get_data(as_text=True)
+
+
+def test_admin_db_check_requires_token(client):
+    denied = client.get("/api/admin/db-check")
+    assert denied.status_code == 403
+
+    ok = client.get("/api/admin/db-check?token=test-token")
+    assert ok.status_code == 200
+    body = ok.get_json()
+    assert body["ok"] is True
+    assert body["checks"]["auth_db_init_ok"] is True
+    assert body["checks"]["feedback_db_init_ok"] is True
+
+
 def test_state_unconfigured_unauthenticated(client):
     res = client.get("/api/state")
     assert res.status_code == 200
@@ -283,6 +301,99 @@ def test_register_requires_matching_confirm_password(client):
         },
     )
     assert bad.status_code == 400
+
+
+def test_account_profile_update(client):
+    user = register(client, email="profile-update@example.edu", name="ProfileUser")
+    update = client.post(
+        "/api/account/profile",
+        json={
+            "display_name": "Updated Name",
+            "username": "updated_name",
+            "gender": "female",
+            "default_weight_lb": 145,
+        },
+    )
+    assert update.status_code == 200
+    body = update.get_json()
+    assert body["ok"] is True
+    assert body["user"]["display_name"] == "Updated Name"
+    assert body["user"]["username"] == "updated_name"
+    assert body["user"]["is_male"] is False
+
+    client.post("/api/auth/logout")
+    login_by_username = client.post("/api/auth/login", json={"email": "updated_name", "password": "password123"})
+    assert login_by_username.status_code == 200
+
+
+def test_account_privacy_and_emergency_contacts(client):
+    register(client, email="privacy@example.edu", name="PrivacyUser")
+
+    summary = client.get("/api/account/privacy-summary")
+    assert summary.status_code == 200
+    body = summary.get_json()
+    assert body["ok"] is True
+    assert body["summary"]["share_with_friends"] is False
+
+    add = client.post("/api/account/emergency-contacts", json={"name": "Mom", "phone": "555-0101"})
+    assert add.status_code == 200
+    contact_id = add.get_json()["contact"]["id"]
+
+    listing = client.get("/api/account/emergency-contacts")
+    assert listing.status_code == 200
+    contacts = listing.get_json()["contacts"]
+    assert len(contacts) == 1
+    assert contacts[0]["name"] == "Mom"
+
+    delete = client.delete(f"/api/account/emergency-contacts/{contact_id}")
+    assert delete.status_code == 200
+    listing_again = client.get("/api/account/emergency-contacts").get_json()
+    assert listing_again["contacts"] == []
+
+
+def test_account_delete_requires_password_and_removes_login(client):
+    register(client, email="delete-me@example.edu", password="password123", name="Delete Me")
+    bad = client.post("/api/account/delete", json={"password": "wrong", "confirm_text": "DELETE"})
+    assert bad.status_code == 401
+
+    missing_confirm = client.post("/api/account/delete", json={"password": "password123", "confirm_text": "NO"})
+    assert missing_confirm.status_code == 400
+
+    ok = client.post("/api/account/delete", json={"password": "password123", "confirm_text": "DELETE"})
+    assert ok.status_code == 200
+    assert ok.get_json()["ok"] is True
+
+    me = client.get("/api/auth/me").get_json()
+    assert me["authenticated"] is False
+
+    login = client.post("/api/auth/login", json={"email": "delete-me@example.edu", "password": "password123"})
+    assert login.status_code == 401
+
+
+def test_session_event_delete_and_restore(client):
+    register(client, email="restore@example.edu", name="RestoreUser")
+    client.post("/api/setup", json={"weight_lb": 170, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 1, "hours_ago": 0})
+
+    before = client.get("/api/state").get_json()
+    assert len(before["session_events"]) == 1
+
+    deleted = client.patch("/api/session/events", json={"index": 0, "delete": True})
+    assert deleted.status_code == 200
+    deleted_body = deleted.get_json()
+    assert deleted_body["deleted_event"]["standard_drinks"] == 1.0
+
+    after_delete = client.get("/api/state").get_json()
+    assert len(after_delete["session_events"]) == 0
+
+    restored = client.patch(
+        "/api/session/events",
+        json={"index": 0, "restore_event": deleted_body["deleted_event"]},
+    )
+    assert restored.status_code == 200
+
+    after_restore = client.get("/api/state").get_json()
+    assert len(after_restore["session_events"]) == 1
 
 
 def test_sessions_are_isolated_per_client():

@@ -7,13 +7,15 @@ Run from project root:
 import os
 import csv
 import io
+import time
+from urllib.parse import urlparse
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, jsonify, redirect, render_template, request, session as flask_session, url_for
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, session as flask_session, url_for
 
 from bac_app import calculations
 from bac_app.auth_store import (
@@ -36,6 +38,10 @@ from bac_app.auth_store import (
     list_friends,
     list_favorite_drinks,
     list_recent_session_payloads,
+    list_emergency_contacts,
+    add_emergency_contact,
+    delete_emergency_contact,
+    get_privacy_summary,
     list_incoming_friend_requests,
     list_session_dates,
     list_user_sessions,
@@ -46,6 +52,9 @@ from bac_app.auth_store import (
     set_group_share_enabled,
     set_share_with_friends,
     track_favorite_drink,
+    update_user_profile,
+    verify_user_password,
+    delete_user_account,
     create_group,
     create_guardian_link,
     create_group_alert,
@@ -60,6 +69,10 @@ from bac_app.auth_store import (
     set_guardian_link_alerts,
     get_share_with_friends,
     revoke_all_sharing_for_user,
+    create_password_reset_token,
+    consume_password_reset_token,
+    create_email_verification_token,
+    verify_email_token,
 )
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drive import get_drive_advice
@@ -86,7 +99,9 @@ AUTH_USER_KEY = "auth_user_id"
 TRACKING_META_KEY = "tracking_meta"
 INACTIVITY_EXPIRE_HOURS = 3.0
 MAX_ACTIVE_SESSION_HOURS = 12.0
-AUTOSAVE_INTERVAL_MINUTES = 5.0
+AUTOSAVE_INTERVAL_MINUTES = 15.0
+LOGIN_RATE_LIMIT_WINDOW_SEC = 300
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
 DEFAULT_AUTH_DB_PATH = str(Path("instance") / "app.db")
@@ -117,6 +132,22 @@ CAMPUS_PRESETS = [
         "emergency_phone": "911",
     },
 ]
+CATALOG_CACHE: dict[str, Any] | None = None
+LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+
+
+@app.before_request
+def _start_timer():
+    g._request_started = time.time()
+
+
+@app.after_request
+def _log_request(response):
+    started = getattr(g, "_request_started", None)
+    if started is not None:
+        elapsed_ms = int((time.time() - started) * 1000)
+        app.logger.info("%s %s -> %s in %sms", request.method, request.path, response.status_code, elapsed_ms)
+    return response
 
 
 def _feedback_db_path() -> str:
@@ -147,6 +178,21 @@ def _ensure_auth_db() -> None:
 
 def _admin_token() -> str:
     return os.environ.get("ADMIN_TOKEN", "")
+
+
+def _check_login_rate_limit(key: str) -> bool:
+    now = time.time()
+    attempts = LOGIN_ATTEMPTS.get(key, [])
+    attempts = [x for x in attempts if now - x <= LOGIN_RATE_LIMIT_WINDOW_SEC]
+    LOGIN_ATTEMPTS[key] = attempts
+    return len(attempts) < LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+
+
+def _record_login_attempt(key: str) -> None:
+    now = time.time()
+    attempts = LOGIN_ATTEMPTS.get(key, [])
+    attempts.append(now)
+    LOGIN_ATTEMPTS[key] = [x for x in attempts if now - x <= LOGIN_RATE_LIMIT_WINDOW_SEC]
 
 
 def _parse_bool(value: Any, default: bool = True) -> bool:
@@ -194,6 +240,7 @@ def _session_to_cookie(model: Session) -> dict[str, Any]:
         "weight_lb": model.weight_lb,
         "is_male": model.is_male,
         "events": [list(e) for e in model.events_full],
+        "saved_at_epoch": int(time.time()),
     }
 
 
@@ -204,13 +251,18 @@ def _session_from_cookie(raw: Any) -> Session | None:
     weight = _clamp_float(raw.get("weight_lb"), 160.0, MIN_WEIGHT_LB, MAX_WEIGHT_LB)
     is_male = _parse_bool(raw.get("is_male"), default=True)
     events_raw = raw.get("events", [])
+    saved_at_epoch = raw.get("saved_at_epoch")
+    elapsed_hours = 0.0
+    if isinstance(saved_at_epoch, (int, float)):
+        elapsed_hours = max(0.0, (time.time() - float(saved_at_epoch)) / 3600.0)
 
     model = Session(weight_lb=weight, is_male=is_male)
     if isinstance(events_raw, list):
         for event in events_raw:
             if not isinstance(event, (list, tuple)) or len(event) != 5:
                 continue
-            t = _clamp_float(event[0], 0.0, -MAX_HOURS_AGO, 0.0)
+            t = _clamp_float(event[0], 0.0, -MAX_HOURS_AGO, 0.0) - elapsed_hours
+            t = max(-MAX_HOURS_AGO, min(0.0, t))
             grams = _clamp_float(event[1], 0.0, 0.0, 1000.0)
             calories = int(_clamp_float(event[2], 0.0, 0.0, 5000.0))
             carbs = _clamp_float(event[3], 0.0, 0.0, 1000.0)
@@ -236,6 +288,19 @@ def _session_events_payload(model: Session) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _event_payload_from_tuple(event: tuple[float, float, int, float, float], *, index: int = 0) -> dict[str, Any]:
+    t, grams, calories, carbs, sugar = event
+    return {
+        "index": index,
+        "hours_ago": round(abs(float(t)), 2),
+        "standard_drinks": round(float(grams) / 14.0, 2),
+        "grams_alcohol": round(float(grams), 2),
+        "calories": int(calories),
+        "carbs_g": round(float(carbs), 2),
+        "sugar_g": round(float(sugar), 2),
+    }
 
 
 def _rebuild_model_from_events(base: Session, events: list[tuple[float, float, int, float, float]]) -> Session:
@@ -500,6 +565,11 @@ def guardian_view(token: str):
     return render_template("guardian.html", token=token)
 
 
+@app.route("/privacy")
+def privacy_page():
+    return render_template("privacy.html")
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify({"ok": True})
@@ -563,6 +633,8 @@ def api_auth_register():
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
+    verify_token = create_email_verification_token(_auth_db_path(), user_id=user["id"])
+    app.logger.info("Email verification token created for user_id=%s token=%s", user["id"], verify_token)
     return jsonify({"ok": True, "user": user})
 
 
@@ -572,18 +644,177 @@ def api_auth_login():
     data = request.get_json() or {}
     email = str(data.get("email", data.get("login", ""))).strip().lower()
     password = str(data.get("password", "")).strip()
+    identifier = email or request.remote_addr or "unknown"
+    if not _check_login_rate_limit(identifier):
+        return jsonify({"error": "Too many login attempts. Please wait and try again."}), 429
 
     user = authenticate_user(_auth_db_path(), email=email, password=password)
     if user is None:
+        _record_login_attempt(identifier)
         return jsonify({"error": "Invalid credentials"}), 401
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
+    LOGIN_ATTEMPTS.pop(identifier, None)
+    return jsonify({"ok": True, "user": user})
+
+
+@app.route("/api/auth/password-reset/request", methods=["POST"])
+def api_auth_password_reset_request():
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    email = str(data.get("email", "")).strip().lower()
+    if "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+    token = create_password_reset_token(_auth_db_path(), email=email)
+    if token:
+        app.logger.info("Password reset token created for email=%s token=%s", email, token)
+    return jsonify({"ok": True, "message": "If the account exists, reset instructions have been generated."})
+
+
+@app.route("/api/auth/password-reset/confirm", methods=["POST"])
+def api_auth_password_reset_confirm():
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    token = str(data.get("token", "")).strip()
+    new_password = str(data.get("new_password", "")).strip()
+    confirm_password = str(data.get("confirm_password", "")).strip()
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if new_password != confirm_password:
+        return jsonify({"error": "Passwords do not match"}), 400
+    ok = consume_password_reset_token(_auth_db_path(), token=token, new_password=new_password)
+    if not ok:
+        return jsonify({"error": "Reset token is invalid or expired"}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/verify-email", methods=["POST"])
+def api_auth_verify_email():
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"error": "Verification token is required"}), 400
+    ok = verify_email_token(_auth_db_path(), token=token)
+    if not ok:
+        return jsonify({"error": "Verification token is invalid or expired"}), 400
+    user = _get_current_user()
     return jsonify({"ok": True, "user": user})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    flask_session.pop(AUTH_USER_KEY, None)
+    flask_session.pop(SESSION_KEY, None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/account/profile", methods=["POST"])
+def api_account_profile_update():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    display_name = str(data.get("display_name", "")).strip()
+    username = str(data.get("username", "")).strip().lower()
+    gender = str(data.get("gender", "")).strip().lower()
+    try:
+        weight_lb = float(data.get("default_weight_lb"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Weight is required"}), 400
+
+    if len(display_name) < 2 or len(display_name) > 40:
+        return jsonify({"error": "Display name must be 2-40 characters"}), 400
+    if len(username) < 3 or len(username) > 24:
+        return jsonify({"error": "Username must be 3-24 characters"}), 400
+    if any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789_" for ch in username):
+        return jsonify({"error": "Username can only use a-z, 0-9, and _"}), 400
+    if gender not in {"male", "female"}:
+        return jsonify({"error": "Gender must be male or female"}), 400
+    if weight_lb < MIN_WEIGHT_LB or weight_lb > MAX_WEIGHT_LB:
+        return jsonify({"error": "Weight must be between 80 and 400 lb"}), 400
+
+    ok, msg = update_user_profile(
+        _auth_db_path(),
+        user_id=user_id,
+        display_name=display_name,
+        username=username,
+        is_male=(gender == "male"),
+        default_weight_lb=weight_lb,
+    )
+    if not ok:
+        return jsonify({"error": msg}), 409
+    user = get_user_by_id(_auth_db_path(), user_id)
+    return jsonify({"ok": True, "user": user})
+
+
+@app.route("/api/account/privacy-summary")
+def api_account_privacy_summary():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    return jsonify({"ok": True, "summary": get_privacy_summary(_auth_db_path(), user_id=user_id)})
+
+
+@app.route("/api/account/emergency-contacts")
+def api_account_emergency_contacts_list():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    return jsonify({"ok": True, "contacts": list_emergency_contacts(_auth_db_path(), user_id=user_id)})
+
+
+@app.route("/api/account/emergency-contacts", methods=["POST"])
+def api_account_emergency_contacts_add():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    data = request.get_json() or {}
+    name = str(data.get("name", "")).strip()
+    phone = str(data.get("phone", "")).strip()
+    if len(name) < 2 or len(name) > 50:
+        return jsonify({"error": "Contact name must be 2-50 characters"}), 400
+    if len(phone) < 7 or len(phone) > 30:
+        return jsonify({"error": "Phone must be 7-30 characters"}), 400
+    _ensure_auth_db()
+    item = add_emergency_contact(_auth_db_path(), user_id=user_id, name=name, phone=phone)
+    return jsonify({"ok": True, "contact": item})
+
+
+@app.route("/api/account/emergency-contacts/<int:contact_id>", methods=["DELETE"])
+def api_account_emergency_contacts_delete(contact_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    ok = delete_emergency_contact(_auth_db_path(), user_id=user_id, contact_id=contact_id)
+    if not ok:
+        return jsonify({"error": "Contact not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/account/delete", methods=["POST"])
+def api_account_delete():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    data = request.get_json() or {}
+    password = str(data.get("password", "")).strip()
+    confirm_text = str(data.get("confirm_text", "")).strip().upper()
+    if not password:
+        return jsonify({"error": "Password is required"}), 400
+    if confirm_text != "DELETE":
+        return jsonify({"error": "Type DELETE to confirm"}), 400
+    if not verify_user_password(_auth_db_path(), user_id=user_id, password=password):
+        return jsonify({"error": "Password is incorrect"}), 401
+    ok = delete_user_account(_auth_db_path(), user_id=user_id)
+    if not ok:
+        return jsonify({"error": "Account not found"}), 404
     flask_session.pop(AUTH_USER_KEY, None)
     flask_session.pop(SESSION_KEY, None)
     return jsonify({"ok": True})
@@ -932,14 +1163,26 @@ def api_social_group_check(group_id: int):
 
 @app.route("/api/drink-types")
 def api_drink_types():
-    return jsonify({"drink_types": list_drink_types()})
+    global CATALOG_CACHE
+    if CATALOG_CACHE is None:
+        CATALOG_CACHE = {
+            "drink_types": list_drink_types(),
+            "by_category": list_by_category(),
+            "flat": list_all_flat(),
+        }
+    return jsonify({"drink_types": CATALOG_CACHE["drink_types"]})
 
 
 @app.route("/api/catalog")
 def api_catalog():
-    by_cat = list_by_category()
-    flat = list_all_flat()
-    return jsonify({"by_category": by_cat, "flat": flat})
+    global CATALOG_CACHE
+    if CATALOG_CACHE is None:
+        CATALOG_CACHE = {
+            "drink_types": list_drink_types(),
+            "by_category": list_by_category(),
+            "flat": list_all_flat(),
+        }
+    return jsonify({"by_category": CATALOG_CACHE["by_category"], "flat": CATALOG_CACHE["flat"]})
 
 
 @app.route("/api/campus/presets")
@@ -1123,22 +1366,59 @@ def api_session_events_patch():
         return jsonify({"error": "No active session"}), 400
 
     data = request.get_json() or {}
+    events = list(model.events_full)
+
+    if isinstance(data.get("restore_event"), dict):
+        restore = data.get("restore_event") or {}
+        try:
+            restore_index = int(data.get("index", len(events)))
+        except (TypeError, ValueError):
+            restore_index = len(events)
+        restore_index = max(0, min(len(events), restore_index))
+        try:
+            hours_ago = float(restore.get("hours_ago", 0.0))
+            standard_drinks = float(restore.get("standard_drinks", 1.0))
+            calories = int(restore.get("calories", 0))
+            carbs = float(restore.get("carbs_g", 0.0))
+            sugar = float(restore.get("sugar_g", 0.0))
+        except (TypeError, ValueError):
+            return jsonify({"error": "restore_event is invalid"}), 400
+        events.insert(
+            restore_index,
+            (
+                -max(0.0, min(MAX_HOURS_AGO, hours_ago)),
+                max(MIN_COUNT, min(MAX_COUNT, standard_drinks)) * 14.0,
+                max(0, calories),
+                max(0.0, carbs),
+                max(0.0, sugar),
+            ),
+        )
+        next_model = _rebuild_model_from_events(model, events)
+        set_session(next_model)
+        _record_auto_session(user_id, next_model, touch_last_event=False)
+        return jsonify({"ok": True, "events": _session_events_payload(next_model)})
+
     try:
         index = int(data.get("index"))
     except (TypeError, ValueError):
         return jsonify({"error": "Valid index is required"}), 400
-
-    events = list(model.events_full)
     if index < 0 or index >= len(events):
         return jsonify({"error": "Event not found"}), 404
 
     if bool(data.get("delete")):
-        events.pop(index)
+        deleted_event = events.pop(index)
         next_model = _rebuild_model_from_events(model, events)
         set_session(next_model)
         if events:
             _record_auto_session(user_id, next_model, touch_last_event=False)
-        return jsonify({"ok": True, "events": _session_events_payload(next_model)})
+        return jsonify(
+            {
+                "ok": True,
+                "events": _session_events_payload(next_model),
+                "deleted_event": _event_payload_from_tuple(deleted_event, index=index),
+                "deleted_index": index,
+            }
+        )
 
     try:
         hours_ago = float(data.get("hours_ago"))
@@ -1402,6 +1682,53 @@ def api_feedback_recent():
 
     limit = request.args.get("limit", type=int) or 25
     return jsonify({"items": list_recent(_feedback_db_path(), limit=limit)})
+
+
+@app.route("/api/admin/db-check")
+def api_admin_db_check():
+    token = request.args.get("token", "")
+    if not _admin_token() or token != _admin_token():
+        return jsonify({"error": "forbidden"}), 403
+
+    auth_path = _auth_db_path()
+    feedback_path = _feedback_db_path()
+    db_engine = "postgres" if _is_db_url(auth_path) else "sqlite"
+    db_target_hint = auth_path
+    if db_engine == "postgres":
+        try:
+            parsed = urlparse(auth_path)
+            db_target_hint = parsed.hostname or "postgres-host"
+        except Exception:
+            db_target_hint = "postgres-host"
+
+    checks: dict[str, Any] = {
+        "auth_db_init_ok": False,
+        "feedback_db_init_ok": False,
+    }
+    errors: list[str] = []
+    try:
+        _ensure_auth_db()
+        checks["auth_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"auth_db: {exc}")
+    try:
+        _ensure_feedback_db()
+        checks["feedback_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"feedback_db: {exc}")
+
+    return jsonify(
+        {
+            "ok": len(errors) == 0,
+            "db_engine": db_engine,
+            "db_target_hint": db_target_hint,
+            "session_cookie_secure": bool(app.config.get("SESSION_COOKIE_SECURE")),
+            "admin_token_configured": bool(_admin_token()),
+            "checks": checks,
+            "errors": errors,
+            "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 if __name__ == "__main__":

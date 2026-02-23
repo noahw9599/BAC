@@ -47,12 +47,26 @@
       </section>
 
       <section class="tracking card" id="tracking-section" style="display: none;">
-        <h2 class="section-title">Tap to add (right now)</h2>
+        <h2 class="section-title">Live now</h2>
+        <div class="safety-banner" id="safety-banner">
+          <p class="safety-banner-title">Safety first</p>
+          <p class="safety-banner-body">Educational estimate only. Never drive after drinking. Use emergency actions if anyone is at risk.</p>
+        </div>
         <div class="quick-add" id="quick-add"></div>
 
-        <details class="more-options" id="more-options">
+        <details class="more-options" id="more-options" open>
           <summary class="more-options-title">More drink options</summary>
           <div class="add-custom">
+            <label for="drink-search">Find a drink fast</label>
+            <input type="search" id="drink-search" placeholder="Search beer, liquor, cocktail, brand..." autocomplete="off">
+            <div class="friend-actions drink-filter-chips" id="drink-filter-chips">
+              <button type="button" class="chip active drink-filter" data-category="all">All</button>
+              <button type="button" class="chip drink-filter" data-category="beer">Beer</button>
+              <button type="button" class="chip drink-filter" data-category="seltzer">Seltzer</button>
+              <button type="button" class="chip drink-filter" data-category="wine">Wine</button>
+              <button type="button" class="chip drink-filter" data-category="liquor">Liquor</button>
+              <button type="button" class="chip drink-filter" data-category="cocktail">Cocktails</button>
+            </div>
             <label for="drink-catalog">Drink</label>
             <select id="drink-catalog" aria-label="Choose drink"></select>
             <div class="add-buttons">
@@ -72,13 +86,29 @@
           </div>
         </details>
 
-        <div class="stats" id="stats">
-          <div class="stat"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
-          <div class="stat"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
+        <div class="stats stats-primary" id="stats">
+          <div class="stat stat-primary"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
+          <div class="stat stat-primary"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
+          <div class="stat stat-primary"><span class="stat-value" id="drive-pill">Checking...</span><span class="stat-label">Drive status</span></div>
+        </div>
+        <div class="stats stats-secondary">
           <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
           <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
           <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
           <div class="stat"><span class="stat-value" id="total-sugar">0</span><span class="stat-label">Sugar</span></div>
+        </div>
+
+        <div class="drive-card card-lite">
+          <h3>Can I drive?</h3>
+          <p class="mini-help">Conservative estimate only. If unsure, do not drive.</p>
+          <p class="drive-status" id="drive-status">No data yet</p>
+          <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
+          <p class="drive-action" id="drive-action"></p>
+          <div class="friend-actions">
+            <button type="button" class="btn btn-secondary" id="btn-drive-ride">Get a ride</button>
+            <button type="button" class="btn btn-danger" id="btn-drive-911">Call 911</button>
+            <button type="button" class="btn btn-secondary" id="btn-drive-share">Share status</button>
+          </div>
         </div>
 
         <div class="chart-card card-lite">
@@ -102,21 +132,22 @@
           <div class="chart-wrap chart-wrap-large"><canvas id="bac-chart" aria-label="BAC over time"></canvas></div>
         </div>
 
-        <div class="drive-card card-lite">
-          <h3>Drive check</h3>
-          <p class="mini-help">Educational estimate only. Never use this as legal proof of fitness to drive.</p>
-          <p class="drive-status" id="drive-status">No data yet</p>
-          <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
-          <p class="drive-action" id="drive-action"></p>
+        <div class="risk-alert card-lite" id="risk-alert" style="display:none;">
+          <h3>Immediate safety alert</h3>
+          <p class="group-summary" id="risk-alert-message"></p>
+          <div class="friend-actions">
+            <button type="button" class="btn btn-danger" id="btn-emergency-911">Call 911 now</button>
+            <button type="button" class="btn btn-secondary" id="btn-risk-ride">Call ride/campus help</button>
+          </div>
         </div>
 
-        <details class="accordion card-lite">
+        <details class="accordion card-lite" open>
           <summary>Planning tools</summary>
           <div class="accordion-body">
             <h3>Smart pace coach</h3>
             <p class="mini-help" id="pace-prediction">Loading pace prediction...</p>
             <div class="hangover-card">
-              <h3>Need to be sharp tomorrow?</h3>
+              <h3>Need to be sharp later?</h3>
               <div class="target-inputs">
                 <label>Date<input type="date" id="target-date"></label>
                 <label>Time<input type="time" id="target-time" step="900"></label>
@@ -135,7 +166,7 @@
           </div>
         </details>
 
-        <details class="accordion card-lite">
+        <details class="accordion card-lite" open>
           <summary>Safety tools</summary>
           <div class="accordion-body">
             <h3>Safety actions</h3>
@@ -144,6 +175,7 @@
               <select id="campus-preset"></select>
             </label>
             <div class="friend-actions">
+              <button type="button" class="chip danger" id="btn-sos-911">Call 911</button>
               <button type="button" class="chip" id="btn-sos-ride">Need ride</button>
               <button type="button" class="chip" id="btn-sos-call-friend">Call friend</button>
               <button type="button" class="chip" id="btn-sos-share-location">Share location</button>
@@ -174,6 +206,7 @@
           <summary>Logged drinks</summary>
           <div class="accordion-body">
             <p class="mini-help">Review your entries. You can edit time/drink count or remove an entry.</p>
+            <p class="group-summary" id="events-undo"></p>
             <div id="session-events-list" class="friend-list"></div>
           </div>
         </details>
@@ -184,6 +217,11 @@
       <section class="saved-sessions card-lite">
         <h3>Saved sessions</h3>
         <p class="mini-help">Pick a date to browse and load previous sessions into your current view.</p>
+        <div class="chart-insights">
+          <div class="mini-card"><p class="mini-title">Sessions shown</p><p class="mini-value" id="hist-total-sessions">0</p></div>
+          <div class="mini-card"><p class="mini-title">Avg drinks</p><p class="mini-value" id="hist-avg-drinks">0.0</p></div>
+          <div class="mini-card"><p class="mini-title">Max drinks</p><p class="mini-value" id="hist-max-drinks">0</p></div>
+        </div>
         <div class="friend-add">
           <label class="sr-only" for="session-date">Session date</label>
           <input type="date" id="session-date">
@@ -305,6 +343,52 @@
         <h2>Account</h2>
         <p class="mini-help" id="auth-status">Signed in.</p>
 
+        <div class="card-lite">
+          <h3>Profile</h3>
+          <div class="row">
+            <label>Name<input type="text" id="acct-display-name" maxlength="40" placeholder="Your name"></label>
+            <label>Username<input type="text" id="acct-username" maxlength="24" placeholder="username"></label>
+          </div>
+          <div class="row">
+            <label>Gender
+              <select id="acct-gender">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+            <label>Weight (lb)<input type="number" id="acct-weight" min="80" max="400" step="1" placeholder="160"></label>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-acct-save">Save profile</button>
+          <p class="group-summary" id="acct-status"></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Preferences</h3>
+          <p class="mini-help">Control sharing defaults for friend feed visibility.</p>
+          <button type="button" class="btn btn-secondary" id="btn-acct-share-toggle">Enable friend sharing</button>
+          <p class="group-summary" id="acct-share-status"></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Privacy summary</h3>
+          <p class="mini-help" id="acct-privacy-summary">Loading privacy settings...</p>
+          <p class="mini-help legal-link"><a href="/privacy">View Privacy Policy</a></p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Emergency contacts</h3>
+          <p class="mini-help">Add people you want quick access to when you need help.</p>
+          <div class="friend-add">
+            <label class="sr-only" for="emergency-name">Name</label>
+            <input type="text" id="emergency-name" maxlength="50" placeholder="Contact name">
+            <label class="sr-only" for="emergency-phone">Phone</label>
+            <input type="text" id="emergency-phone" maxlength="30" placeholder="Phone number">
+            <button type="button" class="btn btn-primary" id="btn-emergency-add">Add</button>
+          </div>
+          <p class="group-summary" id="emergency-status"></p>
+          <div id="emergency-list" class="friend-list"></div>
+        </div>
+
         <div class="feedback-actions">
           <button type="button" class="btn btn-secondary" id="btn-logout">Log out</button>
         </div>
@@ -319,6 +403,21 @@
         <div class="card-lite">
           <h3>Onboarding</h3>
           <p class="mini-help" id="onboarding-status">Loading onboarding steps...</p>
+        </div>
+
+        <div class="card-lite danger-zone">
+          <h3>Danger zone</h3>
+          <p class="mini-help">Permanently delete your account and all saved data.</p>
+          <div class="row">
+            <label>Password
+              <input type="password" id="acct-delete-password" autocomplete="current-password" placeholder="Current password">
+            </label>
+            <label>Type DELETE
+              <input type="text" id="acct-delete-confirm" maxlength="6" placeholder="DELETE">
+            </label>
+          </div>
+          <button type="button" class="btn btn-danger" id="btn-account-delete">Delete account</button>
+          <p class="group-summary" id="acct-delete-status"></p>
         </div>
       </section>
     </section>
