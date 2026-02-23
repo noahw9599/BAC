@@ -35,10 +35,10 @@ function setAuthMode(mode) {
 function redirectToApp() {
   const invite = String(window.__INVITE__ || "").trim();
   if (invite) {
-    window.location.href = `/?invite=${encodeURIComponent(invite)}`;
+    window.location.href = `/?invite=${encodeURIComponent(invite)}&tab=current`;
     return;
   }
-  window.location.href = "/";
+  window.location.href = "/?tab=current";
 }
 
 async function login() {

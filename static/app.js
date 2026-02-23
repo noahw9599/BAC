@@ -109,10 +109,12 @@ function switchTab(tabName) {
 }
 
 function initTabs() {
+  const params = new URLSearchParams(window.location.search);
+  const initial = params.get("tab") || "current";
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
-  switchTab("current");
+  switchTab(initial);
 }
 
 function todayYMD() {
