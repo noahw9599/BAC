@@ -36,7 +36,7 @@ const API = {
   sessionExport: "/api/session/export.csv",
 };
 
-const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
+const QUICK_ADD_IDS = ["vodka-cran", "vodka-diet-coke", "tequila-sprite", "tequila-soda", "white-claw-5", "bud-light"];
 const STORAGE_LAST_DRINK = "drinking-buddy-last-drink";
 const STORAGE_FAVORITES = "drinking-buddy-favorites";
 const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
