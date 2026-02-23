@@ -91,19 +91,14 @@
             <button type="button" class="chip active chart-mode" data-mode="full">Full night</button>
             <button type="button" class="chip chart-mode" data-mode="last6">Last 6h</button>
             <button type="button" class="chip chart-mode" data-mode="untilSober">Until sober</button>
-            <button type="button" class="chip" id="btn-chart-compare">Compare last 5</button>
-          </div>
-          <div class="friend-actions">
-            <button type="button" class="chip whatif-btn active" data-whatif="none">Current</button>
-            <button type="button" class="chip whatif-btn" data-whatif="one_now">+1 drink now</button>
-            <button type="button" class="chip whatif-btn" data-whatif="one_in_1h">+1 in 1h</button>
+            <button type="button" class="chip" id="btn-chart-pace">Show pace projection</button>
           </div>
           <div class="chart-insights" id="chart-insights">
             <div class="mini-card"><p class="mini-title">Peak BAC</p><p class="mini-value" id="peak-bac">0.000</p></div>
             <div class="mini-card"><p class="mini-title">Below 0.08 in</p><p class="mini-value" id="below-legal-in">-</p></div>
             <div class="mini-card"><p class="mini-title">Risk zone now</p><p class="mini-value" id="risk-zone">None</p></div>
           </div>
-          <p class="mini-help" id="chart-timeline-hints"></p>
+          <p class="mini-help" id="chart-timeline-hints">Keep this chart simple: current BAC curve plus legal-limit context.</p>
           <div class="chart-wrap chart-wrap-large"><canvas id="bac-chart" aria-label="BAC over time"></canvas></div>
         </div>
 
@@ -199,6 +194,9 @@
           <label class="sr-only" for="session-name">Session name</label>
           <input type="text" id="session-name" maxlength="80" placeholder="Name this session">
           <button type="button" class="btn btn-primary" id="btn-save-session">Save</button>
+        </div>
+        <div class="friend-add">
+          <button type="button" class="btn btn-secondary" id="btn-session-export">Export CSV</button>
         </div>
         <p class="group-summary" id="session-status"></p>
         <div id="saved-session-list" class="friend-list"></div>
@@ -305,43 +303,10 @@
     <section class="tab-panel" id="tab-account">
       <section class="auth card" id="auth-section">
         <h2>Account</h2>
-        <div class="friend-actions" id="auth-mode-switch">
-          <button type="button" class="chip active" id="btn-mode-login">Log in</button>
-          <button type="button" class="chip" id="btn-mode-register">Register</button>
-        </div>
-        <p class="mini-help" id="auth-status">Log in with your email and password.</p>
-
-        <div id="auth-login-view">
-          <div class="row">
-            <label>Email or username<input type="text" id="auth-login-email" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com or your username"></label>
-            <label>Password<input type="password" id="auth-login-password" name="password" autocomplete="current-password" placeholder="Your password"></label>
-          </div>
-          <button type="button" class="btn btn-primary btn-block" id="btn-login">Log in</button>
-        </div>
-
-        <div id="auth-register-view" style="display:none;">
-          <div class="row">
-            <label>Name<input type="text" id="auth-register-name" maxlength="40" autocomplete="name" placeholder="Your name"></label>
-            <label>Email<input type="email" id="auth-register-email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com"></label>
-          </div>
-          <div class="row">
-            <label>Username<input type="text" id="auth-register-username" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="letters, numbers, underscore"></label>
-          </div>
-          <div class="row">
-            <label>Password<input type="password" id="auth-register-password" autocomplete="new-password" placeholder="At least 8 characters"></label>
-            <label>Gender
-              <select id="auth-register-gender">
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
-            </label>
-          </div>
-          <label>Weight (lb)<input type="number" id="auth-register-weight" min="80" max="400" step="1" placeholder="160"></label>
-          <button type="button" class="btn btn-primary btn-block" id="btn-register">Create account</button>
-        </div>
+        <p class="mini-help" id="auth-status">Signed in.</p>
 
         <div class="feedback-actions">
-          <button type="button" class="btn btn-secondary" id="btn-logout" style="display:none;">Log out</button>
+          <button type="button" class="btn btn-secondary" id="btn-logout">Log out</button>
         </div>
 
         <div class="card-lite">

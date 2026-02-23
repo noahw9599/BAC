@@ -5,12 +5,15 @@ Run from project root:
 """
 
 import os
+import csv
+import io
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request, session as flask_session
+from flask import Flask, Response, jsonify, redirect, render_template, request, session as flask_session, url_for
 
 from bac_app import calculations
 from bac_app.auth_store import (
@@ -474,7 +477,22 @@ def _social_payload(user_id: int) -> dict[str, Any]:
 def index():
     _ensure_feedback_db()
     _ensure_auth_db()
+    if _require_user_id() is None:
+        invite = str(request.args.get("invite", "")).strip()
+        if invite:
+            return redirect(url_for("login_page", invite=invite))
+        return redirect(url_for("login_page"))
     return render_template("index.html")
+
+
+@app.route("/login")
+def login_page():
+    _ensure_feedback_db()
+    _ensure_auth_db()
+    if _require_user_id() is not None:
+        return redirect(url_for("index"))
+    invite = str(request.args.get("invite", "")).strip()
+    return render_template("login.html", invite=invite)
 
 
 @app.route("/guardian/<token>")
@@ -501,6 +519,7 @@ def api_auth_register():
     data = request.get_json() or {}
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", "")).strip()
+    confirm_password = str(data.get("confirm_password", "")).strip()
     display_name = str(data.get("display_name", "")).strip() or email.split("@")[0]
     username = str(data.get("username", "")).strip().lower()
     gender = str(data.get("gender", "")).strip().lower()
@@ -516,6 +535,10 @@ def api_auth_register():
         return jsonify({"error": "Valid email is required"}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if not confirm_password:
+        return jsonify({"error": "Confirm password is required"}), 400
+    if password != confirm_password:
+        return jsonify({"error": "Passwords do not match"}), 400
     if len(display_name) > 40:
         return jsonify({"error": "Display name must be 40 characters or fewer"}), 400
     if username:
@@ -1252,6 +1275,62 @@ def api_session_dates():
         return _auth_required_error()
     _ensure_auth_db()
     return jsonify({"items": list_session_dates(_auth_db_path(), user_id=user_id)})
+
+
+@app.route("/api/session/export.csv")
+def api_session_export_csv():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+
+    _ensure_auth_db()
+    session_date = request.args.get("date", type=str)
+    include_active = _parse_bool(request.args.get("include_active"), default=False)
+    if session_date and not _is_valid_date_yyyy_mm_dd(session_date):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    items = list_user_sessions(
+        _auth_db_path(),
+        user_id=user_id,
+        session_date=session_date,
+        include_active=include_active,
+    )
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(
+        [
+            "id",
+            "name",
+            "created_at",
+            "session_date",
+            "drink_count",
+            "is_auto",
+            "is_active",
+            "started_at",
+            "last_event_at",
+            "ended_at",
+        ]
+    )
+    for item in items:
+        writer.writerow(
+            [
+                item.get("id"),
+                item.get("name", ""),
+                item.get("created_at", ""),
+                item.get("session_date", ""),
+                item.get("drink_count", 0),
+                str(bool(item.get("is_auto", False))).lower(),
+                str(bool(item.get("is_active", False))).lower(),
+                item.get("started_at", "") or "",
+                item.get("last_event_at", "") or "",
+                item.get("ended_at", "") or "",
+            ]
+        )
+
+    filename_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    headers = {"Content-Disposition": f'attachment; filename="bac-sessions-{filename_date}.csv"'}
+    return Response(out.getvalue(), headers=headers, mimetype="text/csv")
 
 
 @app.route("/api/session/load", methods=["POST"])

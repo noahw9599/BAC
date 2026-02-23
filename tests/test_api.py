@@ -1,5 +1,8 @@
 """API-level tests for the Flask app."""
 
+import csv
+import io
+
 import pytest
 
 from app import app
@@ -33,6 +36,7 @@ def register(
         json={
             "email": email,
             "password": password,
+            "confirm_password": password,
             "display_name": name,
             "gender": gender,
             "default_weight_lb": default_weight_lb,
@@ -144,6 +148,7 @@ def test_register_trims_password(client):
         json={
             "email": "trimreg@example.edu",
             "password": " password123 ",
+            "confirm_password": " password123 ",
             "display_name": "TrimReg",
             "gender": "male",
             "default_weight_lb": 165,
@@ -191,6 +196,30 @@ def test_saved_sessions_roundtrip(client):
     assert by_date.get_json()["items"][0]["session_date"] == session_date
 
 
+def test_session_export_requires_auth(client):
+    res = client.get("/api/session/export.csv")
+    assert res.status_code == 401
+
+
+def test_session_export_csv_contains_saved_rows(client):
+    register(client, email="csv@example.edu", name="Csv User")
+    client.post("/api/setup", json={"weight_lb": 165, "is_male": True})
+    client.post("/api/drink", json={"drink_key": "beer", "count": 2, "hours_ago": 0})
+    client.post("/api/session/save", json={"name": "CSV Night"})
+
+    exported = client.get("/api/session/export.csv")
+    assert exported.status_code == 200
+    assert exported.mimetype == "text/csv"
+    assert "attachment; filename=" in exported.headers.get("Content-Disposition", "")
+
+    text = exported.get_data(as_text=True)
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert len(rows) >= 1
+    assert rows[0]["name"] == "CSV Night"
+    assert rows[0]["drink_count"] == "1"
+    assert rows[0]["is_active"] == "false"
+
+
 def test_favorites_persist_per_user(client):
     register(client, email="fav@example.edu", password="password123")
     client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
@@ -219,6 +248,7 @@ def test_register_requires_gender_and_weight(client):
         json={
             "email": "bad1@example.edu",
             "password": "password123",
+            "confirm_password": "password123",
             "display_name": "Bad1",
             "gender": "unknown",
             "default_weight_lb": 160,
@@ -231,12 +261,28 @@ def test_register_requires_gender_and_weight(client):
         json={
             "email": "bad2@example.edu",
             "password": "password123",
+            "confirm_password": "password123",
             "display_name": "Bad2",
             "gender": "female",
             "default_weight_lb": 40,
         },
     )
     assert bad_weight.status_code == 400
+
+
+def test_register_requires_matching_confirm_password(client):
+    bad = client.post(
+        "/api/auth/register",
+        json={
+            "email": "nomatch@example.edu",
+            "password": "password123",
+            "confirm_password": "password456",
+            "display_name": "NoMatch",
+            "gender": "male",
+            "default_weight_lb": 160,
+        },
+    )
+    assert bad.status_code == 400
 
 
 def test_sessions_are_isolated_per_client():
@@ -249,6 +295,7 @@ def test_sessions_are_isolated_per_client():
         json={
             "email": "a@example.edu",
             "password": "password123",
+            "confirm_password": "password123",
             "display_name": "A",
             "gender": "male",
             "default_weight_lb": 160,

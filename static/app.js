@@ -29,6 +29,7 @@ const API = {
   socialPrivacyRevokeAll: "/api/social/privacy/revoke-all",
   sessionDebrief: "/api/session/debrief",
   sessionEvents: "/api/session/events",
+  sessionExport: "/api/session/export.csv",
 };
 
 const QUICK_ADD_IDS = ["bud-light", "white-claw-5", "truly", "vodka-soda", "ipa-typical", "red-wine"];
@@ -62,8 +63,7 @@ let latestState = null;
 let showAllSocialAlerts = false;
 let attemptedAutoSetup = false;
 let chartMode = "full";
-let chartCompareEnabled = false;
-let chartWhatIf = "none";
+let chartPaceEnabled = false;
 
 function $(id) {
   return document.getElementById(id);
@@ -119,12 +119,8 @@ function setAuthUI(authenticated, user = null) {
   const setup = $("setup-section");
   const tracking = $("tracking-section");
   const logoutBtn = $("btn-logout");
-  const loginBtn = $("btn-login");
-  const registerBtn = $("btn-register");
 
   if (logoutBtn) logoutBtn.style.display = authenticated ? "block" : "none";
-  if (loginBtn) loginBtn.style.display = authenticated ? "none" : "block";
-  if (registerBtn) registerBtn.style.display = authenticated ? "none" : "block";
 
   if (!authenticated) {
     serverFavorites = [];
@@ -141,7 +137,7 @@ function setAuthUI(authenticated, user = null) {
     renderSocialFeed([]);
     socialState = { share_with_friends: false, friends: [], incoming_requests: [] };
     renderSocialStatus();
-    switchTab("account");
+    window.location.href = "/login";
     return;
   }
 
@@ -182,11 +178,13 @@ async function refreshAuth() {
       await loadSavedSessions();
       await loadSocial();
       await refreshState();
+    } else {
+      window.location.href = "/login";
     }
   } catch (_) {
     currentUser = null;
     serverFavorites = [];
-    setAuthUI(false);
+    window.location.href = "/login";
     renderMyFriendProfile();
   }
 }
@@ -569,59 +567,10 @@ async function loadServerFavorites() {
   }
 }
 
-function setAuthMode(mode) {
-  authMode = mode === "register" ? "register" : "login";
-  const loginView = $("auth-login-view");
-  const registerView = $("auth-register-view");
-  const loginChip = $("btn-mode-login");
-  const registerChip = $("btn-mode-register");
-  if (loginView) loginView.style.display = authMode === "login" ? "block" : "none";
-  if (registerView) registerView.style.display = authMode === "register" ? "block" : "none";
-  if (loginChip) loginChip.classList.toggle("active", authMode === "login");
-  if (registerChip) registerChip.classList.toggle("active", authMode === "register");
-  if (!currentUser) {
-    setAuthStatus(
-      authMode === "login"
-        ? "Log in with your email and password."
-        : "Create an account with your profile details so sessions can persist."
-    );
-  }
-}
-
-function getLoginPayload() {
-  return {
-    email: $("auth-login-email")?.value?.trim() || "",
-    password: $("auth-login-password")?.value?.trim() || "",
-  };
-}
-
-function getRegisterPayload() {
-  return {
-    display_name: $("auth-register-name")?.value?.trim() || "",
-    username: $("auth-register-username")?.value?.trim().toLowerCase() || "",
-    email: $("auth-register-email")?.value?.trim() || "",
-    password: $("auth-register-password")?.value?.trim() || "",
-    gender: $("auth-register-gender")?.value || "",
-    default_weight_lb: $("auth-register-weight")?.value || "",
-  };
-}
-
-async function authRegister() {
-  const payload = getRegisterPayload();
-  await fetchJSON(API.authRegister, { method: "POST", body: JSON.stringify(payload) });
-  await refreshAuth();
-}
-
-async function authLogin() {
-  const payload = getLoginPayload();
-  await fetchJSON(API.authLogin, { method: "POST", body: JSON.stringify(payload) });
-  await refreshAuth();
-}
-
 async function authLogout() {
   await fetchJSON(API.authLogout, { method: "POST" });
   currentUser = null;
-  setAuthUI(false);
+  window.location.href = "/login";
   renderMyFriendProfile();
 }
 
@@ -1239,8 +1188,7 @@ function updateChartInsights(state) {
   if (hints) {
     const legal = eta.below_legal_hours == null ? "Below 0.08: now/already low" : `Below 0.08 in ~${formatHoursShort(eta.below_legal_hours)}`;
     const sober = eta.sober_hours == null ? "Sober ETA unavailable" : `Sober in ~${formatHoursShort(eta.sober_hours)}`;
-    const safety = (state.bac_now || 0) >= 0.08 ? "Ride support likely needed now." : "Recovery window improving.";
-    hints.textContent = `${legal} | ${sober} | ${safety}`;
+    hints.textContent = `${legal} | ${sober}`;
   }
 }
 
@@ -1285,58 +1233,43 @@ function renderChart(state) {
     return;
   }
   const basePoints = curve.map((d) => ({ x: d.t, y: d.bac }));
-  const lowerBand = (state.chart_data?.confidence_band?.lower || [])
-    .filter((p) => basePoints.some((x) => Number(x.x) === Number(p.t)))
-    .map((p) => ({ x: p.t, y: p.bac }));
-  const upperBand = (state.chart_data?.confidence_band?.upper || [])
-    .filter((p) => basePoints.some((x) => Number(x.x) === Number(p.t)))
-    .map((p) => ({ x: p.t, y: p.bac }));
   const pacePoints = (state.chart_data?.pace_curve || []).map((p) => ({ x: p.t, y: p.bac }));
-  const comparePoints = (state.chart_data?.compare_curve || []).map((p) => ({ x: p.t, y: p.bac }));
-  const whatIfRaw = chartWhatIf === "one_now" ? state.chart_data?.what_if_curves?.one_now : chartWhatIf === "one_in_1h" ? state.chart_data?.what_if_curves?.one_in_1h : [];
-  const whatIfPoints = (whatIfRaw || []).map((p) => ({ x: p.t, y: p.bac }));
   const markers = (state.chart_data?.event_markers || []).map((p) => ({ x: p.t, y: p.bac }));
 
-  const thresholds = (state.chart_data?.thresholds || [0.02, 0.05, 0.08, 0.1]).map((thr) => ({
-    label: `${thr.toFixed(2)} line`,
-    data: [{ x: -6, y: thr }, { x: 24, y: thr }],
-    borderColor: thr === 0.08 ? "#ef4444" : "rgba(148,163,184,0.45)",
-    borderDash: thr === 0.08 ? [6, 4] : [3, 4],
-    pointRadius: 0,
-    borderWidth: thr === 0.08 ? 2 : 1,
-    fill: false,
-    tension: 0,
-  }));
-
   const datasets = [
-    {
-      label: "Confidence lower",
-      data: lowerBand,
-      borderColor: "rgba(56,189,248,0)",
-      pointRadius: 0,
-      fill: false,
-      tension: 0.2,
-    },
     {
       label: "Current BAC",
       data: basePoints,
       borderColor: "#38bdf8",
-      backgroundColor: "rgba(56, 189, 248, 0.15)",
+      backgroundColor: "rgba(56, 189, 248, 0.08)",
       pointRadius: 0,
-      fill: false,
+      fill: true,
       tension: 0.2,
       borderWidth: 2.2,
     },
     {
-      label: "Confidence range",
-      data: upperBand,
-      borderColor: "rgba(56,189,248,0)",
-      backgroundColor: "rgba(56,189,248,0.14)",
+      label: "0.08 legal limit",
+      data: [{ x: -6, y: 0.08 }, { x: 24, y: 0.08 }],
+      borderColor: "#ef4444",
+      borderDash: [6, 4],
       pointRadius: 0,
-      fill: "-2",
-      tension: 0.2,
+      fill: false,
+      tension: 0,
+      borderWidth: 2,
     },
     {
+      type: "scatter",
+      label: "Drink events",
+      data: markers,
+      backgroundColor: "rgba(147,197,253,0.8)",
+      borderColor: "rgba(15,23,42,0.6)",
+      pointRadius: 3,
+      pointHoverRadius: 4,
+    },
+  ];
+
+  if (chartPaceEnabled && pacePoints.length) {
+    datasets.push({
       label: "Pace projection",
       data: pacePoints,
       borderColor: "rgba(251,191,36,0.95)",
@@ -1345,40 +1278,6 @@ function renderChart(state) {
       fill: false,
       tension: 0.2,
       borderWidth: 1.8,
-    },
-    ...thresholds,
-    {
-      type: "scatter",
-      label: "Drink events",
-      data: markers,
-      backgroundColor: "#93c5fd",
-      borderColor: "#0f172a",
-      pointRadius: 4,
-      pointHoverRadius: 5,
-    },
-  ];
-
-  if (chartCompareEnabled && comparePoints.length) {
-    datasets.push({
-      label: "Avg of last 5 sessions",
-      data: comparePoints,
-      borderColor: "rgba(16,185,129,0.95)",
-      borderDash: [2, 3],
-      pointRadius: 0,
-      fill: false,
-      tension: 0.2,
-      borderWidth: 1.8,
-    });
-  }
-  if (whatIfPoints.length) {
-    datasets.push({
-      label: chartWhatIf === "one_now" ? "What-if: +1 now" : "What-if: +1 in 1h",
-      data: whatIfPoints,
-      borderColor: "rgba(248,113,113,0.95)",
-      pointRadius: 0,
-      fill: false,
-      tension: 0.2,
-      borderWidth: 2,
     });
   }
   datasets.push({
@@ -1409,7 +1308,7 @@ function renderChart(state) {
       },
       y: {
         min: 0,
-        max: 0.22,
+        max: 0.18,
         title: { display: true, text: "BAC (%)" },
         grid: { color: "rgba(255,255,255,0.06)" },
         ticks: { color: "#94a3b8" },
@@ -1564,6 +1463,15 @@ async function loadSavedSessionById(sessionId) {
   } catch (err) {
     setSessionStatus(`Load failed: ${err.message}`);
   }
+}
+
+function exportSavedSessionsCsv() {
+  const input = $("session-date");
+  const params = new URLSearchParams();
+  const selectedDate = input?.value?.trim();
+  if (selectedDate) params.set("date", selectedDate);
+  const query = params.toString();
+  window.location.href = query ? `${API.sessionExport}?${query}` : API.sessionExport;
 }
 
 function getQuickAddIds() {
@@ -1793,22 +1701,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadCampusPresets();
   await refreshAuth();
 
-  $("btn-login")?.addEventListener("click", async () => {
-    try {
-      await authLogin();
-    } catch (err) {
-      setAuthStatus(`Login failed: ${err.message}`);
-    }
-  });
-
-  $("btn-register")?.addEventListener("click", async () => {
-    try {
-      await authRegister();
-    } catch (err) {
-      setAuthStatus(`Register failed: ${err.message}`);
-    }
-  });
-
   $("btn-logout")?.addEventListener("click", async () => {
     try {
       await authLogout();
@@ -1816,20 +1708,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       setAuthStatus(`Logout failed: ${err.message}`);
     }
   });
-
-  $("btn-mode-login")?.addEventListener("click", () => setAuthMode("login"));
-  $("btn-mode-register")?.addEventListener("click", () => setAuthMode("register"));
-
-  $("auth-login-password")?.addEventListener("keydown", async (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    try {
-      await authLogin();
-    } catch (err) {
-      setAuthStatus(`Login failed: ${err.message}`);
-    }
-  });
-  setAuthMode("login");
 
   $("btn-setup").addEventListener("click", setup);
 
@@ -1863,6 +1741,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("btn-save-session")?.addEventListener("click", saveCurrentSession);
+  $("btn-session-export")?.addEventListener("click", exportSavedSessionsCsv);
   $("saved-session-list")?.addEventListener("click", async (e) => {
     const target = e.target.closest(".saved-load");
     if (!target) return;
@@ -2023,18 +1902,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (latestState) renderChart(latestState);
     });
   });
-  $("btn-chart-compare")?.addEventListener("click", () => {
-    chartCompareEnabled = !chartCompareEnabled;
-    $("btn-chart-compare").classList.toggle("active", chartCompareEnabled);
+  $("btn-chart-pace")?.addEventListener("click", () => {
+    chartPaceEnabled = !chartPaceEnabled;
+    $("btn-chart-pace").classList.toggle("active", chartPaceEnabled);
+    $("btn-chart-pace").textContent = chartPaceEnabled ? "Hide pace projection" : "Show pace projection";
     if (latestState) renderChart(latestState);
-  });
-  document.querySelectorAll(".whatif-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".whatif-btn").forEach((x) => x.classList.remove("active"));
-      btn.classList.add("active");
-      chartWhatIf = btn.dataset.whatif || "none";
-      if (latestState) renderChart(latestState);
-    });
   });
   $("session-events-list")?.addEventListener("click", async (e) => {
     const saveBtn = e.target.closest(".session-event-save");

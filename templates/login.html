@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign In - BAC Tracker</title>
+  <meta name="theme-color" content="#0f172a">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <section class="card auth">
+      <h1>BAC Tracker</h1>
+      <p class="mini-help">Sign in to continue. Create an account if this is your first time.</p>
+      <p class="group-summary" id="login-status"></p>
+
+      <div class="friend-actions" id="auth-mode-switch">
+        <button type="button" class="chip active" id="btn-mode-login">Log in</button>
+        <button type="button" class="chip" id="btn-mode-register">Register</button>
+      </div>
+
+      <div id="auth-login-view">
+        <div class="row">
+          <label>Email or username
+            <input type="text" id="auth-login-email" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com or username">
+          </label>
+          <label>Password
+            <input type="password" id="auth-login-password" name="password" autocomplete="current-password" placeholder="Your password">
+          </label>
+        </div>
+        <button type="button" class="btn btn-primary btn-block" id="btn-login">Log in</button>
+      </div>
+
+      <div id="auth-register-view" style="display:none;">
+        <div class="row">
+          <label>Name
+            <input type="text" id="auth-register-name" maxlength="40" autocomplete="name" placeholder="Your name">
+          </label>
+          <label>Email
+            <input type="email" id="auth-register-email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com">
+          </label>
+        </div>
+        <div class="row">
+          <label>Username
+            <input type="text" id="auth-register-username" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="letters, numbers, underscore">
+          </label>
+        </div>
+        <div class="row">
+          <label>Password
+            <input type="password" id="auth-register-password" autocomplete="new-password" placeholder="At least 8 characters">
+          </label>
+          <label>Confirm password
+            <input type="password" id="auth-register-password-confirm" autocomplete="new-password" placeholder="Re-enter password">
+          </label>
+        </div>
+        <div class="row">
+          <label>Gender
+            <select id="auth-register-gender">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </label>
+          <label>Weight (lb)
+            <input type="number" id="auth-register-weight" min="80" max="400" step="1" placeholder="160">
+          </label>
+        </div>
+        <button type="button" class="btn btn-primary btn-block" id="btn-register">Create account</button>
+      </div>
+    </section>
+  </div>
+  <script>window.__INVITE__ = "{{ invite|e }}";</script>
+  <script src="{{ url_for('static', filename='login.js') }}"></script>
+</body>
+</html>
