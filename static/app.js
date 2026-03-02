@@ -169,10 +169,8 @@ function setAuthUI(authenticated, user = null) {
   const setup = $("setup-section");
   const tracking = $("tracking-section");
   const logoutBtn = $("btn-logout");
-  const goLoginBtn = $("btn-go-login");
 
   if (logoutBtn) logoutBtn.style.display = authenticated ? "block" : "none";
-  if (goLoginBtn) goLoginBtn.style.display = authenticated ? "none" : "inline-flex";
 
   if (!authenticated) {
     serverFavorites = [];
@@ -192,7 +190,10 @@ function setAuthUI(authenticated, user = null) {
     renderEmergencyContacts();
     renderAccountPrivacySummary(null);
     renderSocialStatus();
-    setAuthStatus("Session expired. Please log in again.");
+    setAuthStatus("Session expired. Redirecting to login...");
+    if (window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
     return;
   }
 
@@ -289,7 +290,6 @@ async function refreshAuth() {
   populateAccountProfileForm();
 
   if (!currentUser) {
-    setAuthUI(false);
     return;
   }
 
@@ -317,7 +317,7 @@ async function refreshAuth() {
     await refreshState();
   } catch (err) {
     if (err?.status === 401) {
-      window.location.href = "/login";
+      setAuthUI(false);
       return;
     }
     setAuthStatus("Signed in, but some data failed to load.");
@@ -2262,9 +2262,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       setAuthStatus(`Logout failed: ${err.message}`);
     }
-  });
-  $("btn-go-login")?.addEventListener("click", () => {
-    window.location.href = "/login";
   });
   $("btn-acct-save")?.addEventListener("click", async () => {
     await saveAccountProfile();
