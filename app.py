@@ -148,6 +148,10 @@ def _log_request(response):
     if started is not None:
         elapsed_ms = int((time.time() - started) * 1000)
         app.logger.info("%s %s -> %s in %sms", request.method, request.path, response.status_code, elapsed_ms)
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 
