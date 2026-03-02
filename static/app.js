@@ -45,6 +45,7 @@ const STORAGE_FRIENDS = "drinking-buddy-friends";
 const STORAGE_TARGET_DATE = "drinking-buddy-target-date";
 const STORAGE_TARGET_TIME = "drinking-buddy-target-time";
 const STORAGE_PENDING_INVITE = "drinking-buddy-pending-invite";
+const STORAGE_CURRENT_VIEW = "drinking-buddy-current-view";
 const MAX_FAVORITES = 6;
 const MAX_FRIENDS = 12;
 
@@ -74,6 +75,7 @@ let lastDeletedSessionEvent = null;
 let emergencyContacts = [];
 let selectedDrinkCategory = "all";
 let addDrinkInFlight = false;
+let activeCurrentView = "log";
 
 function $(id) {
   return document.getElementById(id);
@@ -124,6 +126,31 @@ function initTabs() {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
   switchTab(initial);
+}
+
+function switchCurrentView(viewName) {
+  const next = ["log", "plan", "safety", "session"].includes(viewName) ? viewName : "log";
+  activeCurrentView = next;
+  try {
+    localStorage.setItem(STORAGE_CURRENT_VIEW, next);
+  } catch (_) {}
+  document.querySelectorAll(".current-subpanel").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.currentView === next);
+  });
+  document.querySelectorAll(".current-view-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.currentView === next);
+  });
+}
+
+function initCurrentViewNav() {
+  let stored = "log";
+  try {
+    stored = localStorage.getItem(STORAGE_CURRENT_VIEW) || "log";
+  } catch (_) {}
+  document.querySelectorAll(".current-view-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchCurrentView(btn.dataset.currentView || "log"));
+  });
+  switchCurrentView(stored);
 }
 
 function todayYMD() {
@@ -2190,6 +2217,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadCatalog();
     pullInviteCodeFromUrl();
     initTabs();
+    initCurrentViewNav();
     initializeTargetInputs();
     loadFriends();
     renderFriends();
