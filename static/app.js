@@ -2177,16 +2177,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   setDrinkButtonsBusy(true);
-  await loadCatalog();
-  setDrinkButtonsBusy(false);
-  pullInviteCodeFromUrl();
-  initTabs();
-  initializeTargetInputs();
-  loadFriends();
-  renderFriends();
-  setupShareButton();
-  await loadCampusPresets();
-  await refreshAuth();
+  try {
+    await loadCatalog();
+    pullInviteCodeFromUrl();
+    initTabs();
+    initializeTargetInputs();
+    loadFriends();
+    renderFriends();
+    setupShareButton();
+    await loadCampusPresets();
+    await refreshAuth();
+  } finally {
+    setDrinkButtonsBusy(false);
+  }
 
   $("btn-logout")?.addEventListener("click", async () => {
     try {
