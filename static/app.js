@@ -190,7 +190,7 @@ function setAuthUI(authenticated, user = null) {
     renderEmergencyContacts();
     renderAccountPrivacySummary(null);
     renderSocialStatus();
-    window.location.href = "/login";
+    setAuthStatus("Session expired. Please log in again.");
     return;
   }
 
@@ -287,7 +287,7 @@ async function refreshAuth() {
   populateAccountProfileForm();
 
   if (!currentUser) {
-    window.location.href = "/login";
+    setAuthUI(false);
     return;
   }
 
@@ -2144,7 +2144,7 @@ async function refreshState() {
   try {
     state = await fetchJSON(url);
   } catch (err) {
-    if (String(err.message || "").toLowerCase().includes("authentication")) {
+    if (err?.status === 401 || String(err.message || "").toLowerCase().includes("authentication")) {
       setAuthUI(false);
       return;
     }
