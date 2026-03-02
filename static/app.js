@@ -2020,9 +2020,17 @@ async function addDrink(catalogId, count, hoursAgoVal, sipMinutes = 0) {
   addDrinkInFlight = true;
   setDrinkButtonsBusy(true);
   const body = { catalog_id: catalogId, count, hours_ago: hoursAgoVal, sip_minutes: sipMinutes };
+  const previousCount = Number(latestState?.drink_count || 0);
   try {
     await fetchJSON(API.drink, { method: "POST", body: JSON.stringify(body) });
     await refreshState();
+    const updatedCount = Number(latestState?.drink_count || 0);
+    if (updatedCount <= previousCount) {
+      // On some mobile browsers, cookie-backed session updates can lag one request.
+      // Retry state read once to avoid "first tap looks ignored, second tap shows two".
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      await refreshState();
+    }
   } finally {
     addDrinkInFlight = false;
     setDrinkButtonsBusy(false);
