@@ -567,6 +567,16 @@ header h1 {
   font-size: 1rem;
 }
 
+.friend-add select {
+  min-height: 50px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.5rem 0.65rem;
+  font-size: 1rem;
+}
+
 .group-summary {
   margin: var(--space-1) 0;
   color: var(--muted);

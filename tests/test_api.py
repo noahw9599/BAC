@@ -551,6 +551,41 @@ def test_group_safety_flow():
     assert public_after.status_code == 404
 
 
+def test_group_buddy_and_emergency_alert_flow():
+    app.config["TESTING"] = True
+    owner = app.test_client()
+    member = app.test_client()
+    register(owner, email="buddy-owner@example.edu", name="Owner")
+    register(member, email="buddy-member@example.edu", name="Member")
+
+    created = owner.post("/api/social/groups/create", json={"name": "Safety Crew"})
+    assert created.status_code == 200
+    group_id = created.get_json()["group"]["id"]
+    invite_code = created.get_json()["group"]["invite_code"]
+
+    joined = member.post("/api/social/groups/join", json={"invite_code": invite_code})
+    assert joined.status_code == 200
+
+    snap = owner.get(f"/api/social/groups/{group_id}").get_json()
+    owner_id = next(m["user_id"] for m in snap["members"] if m["display_name"] == "Owner")
+    member_id = next(m["user_id"] for m in snap["members"] if m["display_name"] == "Member")
+
+    pair = owner.post(f"/api/social/groups/{group_id}/buddy", json={"user_a": owner_id, "user_b": member_id})
+    assert pair.status_code == 200
+    snap_after_pair = owner.get(f"/api/social/groups/{group_id}").get_json()
+    owner_row = next(m for m in snap_after_pair["members"] if m["user_id"] == owner_id)
+    assert owner_row["buddy_user_id"] == member_id
+
+    status_update = owner.post(f"/api/social/groups/{group_id}/location", json={"preset": "home_safe"})
+    assert status_update.status_code == 200
+
+    emergency = owner.post(
+        f"/api/social/groups/{group_id}/check",
+        json={"target_user_id": member_id, "kind": "emergency"},
+    )
+    assert emergency.status_code == 200
+
+
 def test_campus_presets_available(client):
     res = client.get("/api/campus/presets")
     assert res.status_code == 200

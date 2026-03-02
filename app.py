@@ -49,6 +49,8 @@ from bac_app.auth_store import (
     save_user_session,
     send_friend_request,
     set_group_member_role,
+    set_group_buddy_pair,
+    clear_group_buddy_pair,
     set_group_share_enabled,
     set_share_with_friends,
     track_favorite_drink,
@@ -71,8 +73,6 @@ from bac_app.auth_store import (
     revoke_all_sharing_for_user,
     create_password_reset_token,
     consume_password_reset_token,
-    create_email_verification_token,
-    verify_email_token,
 )
 from bac_app.catalog import list_all_flat, list_by_category
 from bac_app.drive import get_drive_advice
@@ -633,8 +633,6 @@ def api_auth_register():
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
-    verify_token = create_email_verification_token(_auth_db_path(), user_id=user["id"])
-    app.logger.info("Email verification token created for user_id=%s token=%s", user["id"], verify_token)
     return jsonify({"ok": True, "user": user})
 
 
@@ -691,14 +689,7 @@ def api_auth_password_reset_confirm():
 
 @app.route("/api/auth/verify-email", methods=["POST"])
 def api_auth_verify_email():
-    _ensure_auth_db()
-    data = request.get_json() or {}
-    token = str(data.get("token", "")).strip()
-    if not token:
-        return jsonify({"error": "Verification token is required"}), 400
-    ok = verify_email_token(_auth_db_path(), token=token)
-    if not ok:
-        return jsonify({"error": "Verification token is invalid or expired"}), 400
+    # Email confirmation is intentionally disabled for this app.
     user = _get_current_user()
     return jsonify({"ok": True, "user": user})
 
@@ -1120,10 +1111,37 @@ def api_social_group_location(group_id: int):
         return jsonify({"error": "Not a group member"}), 403
     data = request.get_json() or {}
     note = str(data.get("location_note", "")).strip()[:80]
+    preset = str(data.get("preset", "")).strip().lower()
+    if preset in {"at_bar", "leaving", "ride_home", "home_safe"} and not note:
+        labels = {
+            "at_bar": "At bar",
+            "leaving": "Leaving venue",
+            "ride_home": "In a ride home",
+            "home_safe": "Home safe",
+        }
+        note = labels[preset]
     model = get_session()
     bac_now = round(model.bac_now(0.0), 4) if model else 0.0
     drink_count = len(model.events) if model else 0
     upsert_presence(_auth_db_path(), user_id=user_id, bac_now=bac_now, drink_count=drink_count, location_note=note)
+    if preset == "home_safe":
+        create_group_alert(
+            _auth_db_path(),
+            group_id=group_id,
+            alert_type="home_safe",
+            message="Marked home safe.",
+            from_user_id=user_id,
+            target_user_id=None,
+        )
+    elif preset in {"at_bar", "leaving", "ride_home"}:
+        create_group_alert(
+            _auth_db_path(),
+            group_id=group_id,
+            alert_type="status",
+            message=f"Status update: {note}.",
+            from_user_id=user_id,
+            target_user_id=None,
+        )
     return jsonify({"ok": True})
 
 
@@ -1143,21 +1161,66 @@ def api_social_group_check(group_id: int):
     if not is_group_member(_auth_db_path(), group_id=group_id, user_id=target_user_id):
         return jsonify({"error": "Target not in group"}), 400
     kind = str(data.get("kind", "check")).strip().lower()
-    if kind not in {"check", "water", "ride"}:
+    if kind not in {"check", "water", "ride", "emergency"}:
         kind = "check"
     msg_map = {
         "check": "Check-in requested for a friend.",
         "water": "Water check requested for a friend.",
         "ride": "Ride-home support requested for a friend.",
+        "emergency": "Emergency support requested now.",
     }
     create_group_alert(
         _auth_db_path(),
         group_id=group_id,
-        alert_type="check",
+        alert_type="emergency" if kind == "emergency" else "check",
         message=msg_map[kind],
         from_user_id=user_id,
         target_user_id=target_user_id,
     )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/social/groups/<int:group_id>/buddy", methods=["POST"])
+def api_social_group_buddy(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role not in {"owner", "mod"}:
+        return jsonify({"error": "Only owner/mod can set buddies"}), 403
+    data = request.get_json() or {}
+    try:
+        user_a = int(data.get("user_a"))
+        user_b = int(data.get("user_b"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid user_a and user_b are required"}), 400
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_a):
+        return jsonify({"error": "user_a not in group"}), 400
+    if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_b):
+        return jsonify({"error": "user_b not in group"}), 400
+    try:
+        set_group_buddy_pair(_auth_db_path(), group_id=group_id, user_a=user_a, user_b=user_b)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/social/groups/<int:group_id>/buddy/clear", methods=["POST"])
+def api_social_group_buddy_clear(group_id: int):
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+    _ensure_auth_db()
+    role = get_group_role(_auth_db_path(), group_id=group_id, user_id=user_id)
+    if role not in {"owner", "mod"}:
+        return jsonify({"error": "Only owner/mod can clear buddies"}), 403
+    data = request.get_json() or {}
+    try:
+        target_user_id = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valid user_id is required"}), 400
+    clear_group_buddy_pair(_auth_db_path(), group_id=group_id, user_id=target_user_id)
     return jsonify({"ok": True})
 
 

@@ -275,11 +275,42 @@
             <button type="button" class="btn btn-secondary" id="btn-group-share-toggle">Enable group sharing</button>
           </div>
           <div class="friend-add">
+            <label class="sr-only" for="social-status-preset">Status preset</label>
+            <select id="social-status-preset">
+              <option value="">Quick status</option>
+              <option value="at_bar">At bar</option>
+              <option value="leaving">Leaving venue</option>
+              <option value="ride_home">In a ride home</option>
+              <option value="home_safe">Home safe</option>
+            </select>
+            <button type="button" class="btn btn-secondary" id="btn-social-status-preset">Post status</button>
+          </div>
+          <div class="friend-add">
             <label class="sr-only" for="social-location-note">Location note</label>
             <input type="text" id="social-location-note" maxlength="80" placeholder="Optional location/status (e.g. Library lot)">
             <button type="button" class="btn btn-secondary" id="btn-social-location">Update</button>
           </div>
+          <div class="friend-actions">
+            <button type="button" class="chip" id="btn-social-checkin">I'm okay</button>
+            <button type="button" class="chip" id="btn-social-home-safe">I'm home safe</button>
+          </div>
           <p class="group-summary" id="social-share-status">Select a group first.</p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Buddy system</h3>
+          <p class="mini-help">Owner/mod can pair buddies and assign a designated driver.</p>
+          <div class="friend-add">
+            <label class="sr-only" for="buddy-user-a">Member A</label>
+            <select id="buddy-user-a"></select>
+            <label class="sr-only" for="buddy-user-b">Member B</label>
+            <select id="buddy-user-b"></select>
+          </div>
+          <div class="friend-actions">
+            <button type="button" class="chip" id="btn-set-buddy-pair">Set buddy pair</button>
+            <button type="button" class="chip" id="btn-clear-buddy-pair">Clear selected buddy</button>
+          </div>
+          <p class="group-summary" id="social-buddy-status"></p>
         </div>
 
         <div class="card-lite">

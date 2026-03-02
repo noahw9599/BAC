@@ -28,6 +28,7 @@ const API = {
   socialGroups: "/api/social/groups",
   socialGroupCreate: "/api/social/groups/create",
   socialGroupJoin: "/api/social/groups/join",
+  socialBuddy: "/api/social/groups",
   guardianBase: "/api/social/groups",
   campusPresets: "/api/campus/presets",
   socialPrivacyRevokeAll: "/api/social/privacy/revoke-all",
@@ -72,9 +73,16 @@ let chartPaceEnabled = false;
 let lastDeletedSessionEvent = null;
 let emergencyContacts = [];
 let selectedDrinkCategory = "all";
+let addDrinkInFlight = false;
 
 function $(id) {
   return document.getElementById(id);
+}
+
+function setDrinkButtonsBusy(busy) {
+  document.querySelectorAll(".btn-add, .quick-btn").forEach((el) => {
+    el.disabled = busy;
+  });
 }
 
 async function fetchJSON(url, options = {}) {
@@ -395,24 +403,33 @@ function renderGroupSnapshot() {
 
   const me = activeGroupSnapshot.members.find((m) => m.user_id === currentUser?.id);
   const elevatedView = me && ["owner", "mod", "dd"].includes(me.role);
+  const canManageRoles = me && ["owner", "mod"].includes(me.role);
   const members = [...activeGroupSnapshot.members];
-  if (elevatedView) {
-    members.sort((a, b) => (b.bac_now || 0) - (a.bac_now || 0));
-  }
+  members.sort((a, b) => socialSortScore(b) - socialSortScore(a));
 
   members.forEach((m) => {
     const bac = m.bac_now == null ? "hidden" : Number(m.bac_now).toFixed(3);
     const drinks = m.drink_count == null ? "hidden" : m.drink_count;
     const loc = m.location_note || "-";
+    const staleMin = minutesSinceIso(m.updated_at);
+    const stale = staleMin == null ? "No recent update" : staleMin <= 5 ? "Updated now" : `${staleMin}m ago`;
+    const risk = socialRiskLabel(m);
+    const buddy = activeGroupSnapshot.members.find((x) => Number(x.user_id) === Number(m.buddy_user_id));
+    const ddBtn = canManageRoles
+      ? `<button type="button" class="chip social-set-dd" data-target-user-id="${m.user_id}" data-make-dd="${m.role === "dd" ? 0 : 1}">${m.role === "dd" ? "Remove DD" : "Make DD"}</button>`
+      : "";
     const row = document.createElement("div");
     row.className = "friend-row";
     row.innerHTML = `
       <div class="friend-main">${m.display_name} (${m.role})</div>
-      <div class="friend-counts">BAC ${bac} | Drinks ${drinks} | Location ${loc}</div>
+      <div class="friend-counts">${risk} | BAC ${bac} | Drinks ${drinks} | ${stale}</div>
+      <div class="friend-counts">Location ${loc}${buddy ? ` | Buddy ${buddy.display_name}` : ""}</div>
       <div class="friend-actions">
         <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="check">Check</button>
         <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="water">Water</button>
         <button type="button" class="chip social-check" data-target-user-id="${m.user_id}" data-kind="ride">Ride</button>
+        <button type="button" class="chip danger social-check" data-target-user-id="${m.user_id}" data-kind="emergency">Emergency</button>
+        ${ddBtn}
       </div>
     `;
     membersList.appendChild(row);
@@ -443,7 +460,42 @@ function renderGroupSnapshot() {
   }
   renderSocialStatus();
   renderGuardianLinks();
+  populateBuddySelectors();
   updateOnboardingStatus();
+}
+
+function minutesSinceIso(isoString) {
+  if (!isoString) return null;
+  const t = Date.parse(isoString);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.round((Date.now() - t) / 60000));
+}
+
+function socialRiskLabel(member) {
+  const bac = Number(member?.bac_now || 0);
+  const staleMin = minutesSinceIso(member?.updated_at);
+  if (bac >= 0.12 || (staleMin != null && staleMin >= 90)) return "RED";
+  if (bac >= 0.08 || (staleMin != null && staleMin >= 45)) return "YELLOW";
+  return "GREEN";
+}
+
+function socialSortScore(member) {
+  const bac = Number(member?.bac_now || 0);
+  const staleMin = minutesSinceIso(member?.updated_at) || 0;
+  const riskBase = socialRiskLabel(member) === "RED" ? 10000 : socialRiskLabel(member) === "YELLOW" ? 5000 : 0;
+  return riskBase + Math.round(bac * 1000) + staleMin;
+}
+
+function populateBuddySelectors() {
+  const a = $("buddy-user-a");
+  const b = $("buddy-user-b");
+  if (!a || !b) return;
+  const members = Array.isArray(activeGroupSnapshot?.members) ? activeGroupSnapshot.members : [];
+  const options = members
+    .map((m) => `<option value="${m.user_id}">${m.display_name}</option>`)
+    .join("");
+  a.innerHTML = options;
+  b.innerHTML = options;
 }
 
 function renderGuardianLinks() {
@@ -694,13 +746,90 @@ async function updateGroupLocation() {
   await loadSocial();
 }
 
+async function postStatusPreset() {
+  if (!activeGroupId) return;
+  const preset = $("social-status-preset")?.value || "";
+  if (!preset) return;
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/location`, {
+    method: "POST",
+    body: JSON.stringify({ preset }),
+  });
+  await loadSocial();
+}
+
+async function sendSelfCheckIn() {
+  if (!activeGroupId || !currentUser) return;
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/location`, {
+    method: "POST",
+    body: JSON.stringify({ preset: "at_bar", location_note: "Checked in: I'm okay" }),
+  });
+  await loadSocial();
+}
+
+async function sendHomeSafe() {
+  if (!activeGroupId || !currentUser) return;
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/location`, {
+    method: "POST",
+    body: JSON.stringify({ preset: "home_safe" }),
+  });
+  await loadSocial();
+}
+
 async function sendGroupCheck(targetUserId, kind) {
   if (!activeGroupId) return;
+  if (kind === "emergency") {
+    const ok = window.confirm("Send EMERGENCY alert to this group member?");
+    if (!ok) return;
+  }
   await fetchJSON(`${API.socialGroups}/${activeGroupId}/check`, {
     method: "POST",
     body: JSON.stringify({ target_user_id: targetUserId, kind }),
   });
   await loadSocial();
+}
+
+async function setGroupDd(targetUserId, makeDd) {
+  if (!activeGroupId) return;
+  await fetchJSON(`${API.socialGroups}/${activeGroupId}/role`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: Number(targetUserId), role: makeDd ? "dd" : "member" }),
+  });
+  await loadSocial();
+}
+
+async function setBuddyPair() {
+  if (!activeGroupId) return;
+  const a = $("buddy-user-a")?.value;
+  const b = $("buddy-user-b")?.value;
+  if (!a || !b) return;
+  const status = $("social-buddy-status");
+  try {
+    await fetchJSON(`${API.socialGroups}/${activeGroupId}/buddy`, {
+      method: "POST",
+      body: JSON.stringify({ user_a: Number(a), user_b: Number(b) }),
+    });
+    if (status) status.textContent = "Buddy pair updated.";
+    await loadSocial();
+  } catch (err) {
+    if (status) status.textContent = err.message;
+  }
+}
+
+async function clearBuddyPair() {
+  if (!activeGroupId) return;
+  const a = $("buddy-user-a")?.value;
+  const status = $("social-buddy-status");
+  if (!a) return;
+  try {
+    await fetchJSON(`${API.socialGroups}/${activeGroupId}/buddy/clear`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: Number(a) }),
+    });
+    if (status) status.textContent = "Buddy pair cleared.";
+    await loadSocial();
+  } catch (err) {
+    if (status) status.textContent = err.message;
+  }
 }
 
 async function createGuardianLink() {
@@ -1886,9 +2015,17 @@ async function addOneNow(catalogId) {
 }
 
 async function addDrink(catalogId, count, hoursAgoVal) {
+  if (addDrinkInFlight) return;
+  addDrinkInFlight = true;
+  setDrinkButtonsBusy(true);
   const body = { catalog_id: catalogId, count, hours_ago: hoursAgoVal };
-  await fetchJSON(API.drink, { method: "POST", body: JSON.stringify(body) });
-  await refreshState();
+  try {
+    await fetchJSON(API.drink, { method: "POST", body: JSON.stringify(body) });
+    await refreshState();
+  } finally {
+    addDrinkInFlight = false;
+    setDrinkButtonsBusy(false);
+  }
 }
 
 async function setup() {
@@ -2032,7 +2169,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     navigator.serviceWorker.register("/static/sw.js").catch(() => {});
   }
 
+  setDrinkButtonsBusy(true);
   await loadCatalog();
+  setDrinkButtonsBusy(false);
   pullInviteCodeFromUrl();
   initTabs();
   initializeTargetInputs();
@@ -2179,6 +2318,30 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (s) s.textContent = err.message;
     }
   });
+  $("btn-social-status-preset")?.addEventListener("click", async () => {
+    try {
+      await postStatusPreset();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-checkin")?.addEventListener("click", async () => {
+    try {
+      await sendSelfCheckIn();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
+  $("btn-social-home-safe")?.addEventListener("click", async () => {
+    try {
+      await sendHomeSafe();
+    } catch (err) {
+      const s = $("social-request-status");
+      if (s) s.textContent = err.message;
+    }
+  });
   $("btn-social-add-friend")?.addEventListener("click", async () => {
     await sendSocialFriendRequest();
   });
@@ -2233,13 +2396,30 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("social-members-list")?.addEventListener("click", async (e) => {
     const target = e.target.closest(".social-check");
-    if (!target) return;
-    try {
-      await sendGroupCheck(target.dataset.targetUserId, target.dataset.kind);
-    } catch (err) {
-      const s = $("social-request-status");
-      if (s) s.textContent = err.message;
+    if (target) {
+      try {
+        await sendGroupCheck(target.dataset.targetUserId, target.dataset.kind);
+      } catch (err) {
+        const s = $("social-request-status");
+        if (s) s.textContent = err.message;
+      }
+      return;
     }
+    const ddBtn = e.target.closest(".social-set-dd");
+    if (ddBtn) {
+      try {
+        await setGroupDd(ddBtn.dataset.targetUserId, ddBtn.dataset.makeDd === "1");
+      } catch (err) {
+        const s = $("social-request-status");
+        if (s) s.textContent = err.message;
+      }
+    }
+  });
+  $("btn-set-buddy-pair")?.addEventListener("click", async () => {
+    await setBuddyPair();
+  });
+  $("btn-clear-buddy-pair")?.addEventListener("click", async () => {
+    await clearBuddyPair();
   });
   $("btn-social-create-guardian")?.addEventListener("click", async () => {
     try {
