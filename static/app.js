@@ -169,8 +169,10 @@ function setAuthUI(authenticated, user = null) {
   const setup = $("setup-section");
   const tracking = $("tracking-section");
   const logoutBtn = $("btn-logout");
+  const goLoginBtn = $("btn-go-login");
 
   if (logoutBtn) logoutBtn.style.display = authenticated ? "block" : "none";
+  if (goLoginBtn) goLoginBtn.style.display = authenticated ? "none" : "inline-flex";
 
   if (!authenticated) {
     serverFavorites = [];
@@ -2260,6 +2262,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       setAuthStatus(`Logout failed: ${err.message}`);
     }
+  });
+  $("btn-go-login")?.addEventListener("click", () => {
+    window.location.href = "/login";
   });
   $("btn-acct-save")?.addEventListener("click", async () => {
     await saveAccountProfile();
