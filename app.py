@@ -102,6 +102,7 @@ MAX_ACTIVE_SESSION_HOURS = 12.0
 AUTOSAVE_INTERVAL_MINUTES = 15.0
 LOGIN_RATE_LIMIT_WINDOW_SEC = 300
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
+ALLOWED_SIP_MINUTES = {0, 15, 30}
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
 DEFAULT_AUTH_DB_PATH = str(Path("instance") / "app.db")
@@ -1295,15 +1296,25 @@ def api_drink():
     data = request.get_json() or {}
     count = _clamp_float(data.get("count"), 1.0, MIN_COUNT, MAX_COUNT)
     hours_ago = _clamp_float(data.get("hours_ago"), 0.0, 0.0, MAX_HOURS_AGO)
+    try:
+        sip_minutes = int(data.get("sip_minutes", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "sip_minutes must be 0, 15, or 30"}), 400
+    if sip_minutes not in ALLOWED_SIP_MINUTES:
+        return jsonify({"error": "sip_minutes must be 0, 15, or 30"}), 400
+
+    # Sip mode approximates a drink consumed over time by placing the event at
+    # the midpoint of the selected sipping window.
+    effective_hours_ago = min(MAX_HOURS_AGO, hours_ago + (sip_minutes / 120.0))
 
     if data.get("catalog_id"):
         catalog_id = data["catalog_id"]
-        model.add_drink_catalog(hours_ago, catalog_id, count)
+        model.add_drink_catalog(effective_hours_ago, catalog_id, count)
         _ensure_auth_db()
         track_favorite_drink(_auth_db_path(), user_id=user_id, catalog_id=catalog_id)
     else:
         drink_key = data.get("drink_key", "beer")
-        model.add_drink_ago(hours_ago, drink_key, count)
+        model.add_drink_ago(effective_hours_ago, drink_key, count)
 
     set_session(model)
     _record_auto_session(user_id, model, touch_last_event=True)

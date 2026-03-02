@@ -30,6 +30,14 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+.container a,
+button,
+input,
+select,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .container {
   max-width: 540px;
   margin: 0 auto;
@@ -138,6 +146,7 @@ header h1 {
   background: rgba(15, 23, 42, 0.95);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(6px);
+  box-shadow: 0 -8px 24px rgba(2, 8, 23, 0.4);
 }
 
 .tab-btn {
@@ -312,6 +321,15 @@ header h1 {
 
 .btn-danger:hover, .btn-danger:active {
   background: #b91c1c;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
 }
 
 /* ---- Stats ---- */
@@ -814,7 +832,7 @@ details > summary {
 }
 
 .accordion[open] > summary::after {
-  content: "−";
+  content: "-";
 }
 
 .accordion-body {

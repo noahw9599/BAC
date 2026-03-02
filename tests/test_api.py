@@ -118,6 +118,27 @@ def test_drink_and_state_roundtrip(client):
     assert "status" in data["drive_advice"]
 
 
+def test_drink_sip_mode_uses_midpoint_time(client):
+    register(client)
+    client.post("/api/setup", json={"weight_lb": 170, "is_male": True})
+    add = client.post("/api/drink", json={"catalog_id": "bud-light", "count": 1, "hours_ago": 0, "sip_minutes": 30})
+    assert add.status_code == 200
+
+    state = client.get("/api/state")
+    assert state.status_code == 200
+    events = state.get_json()["session_events"]
+    assert len(events) == 1
+    assert events[0]["hours_ago"] == pytest.approx(0.25, abs=0.02)
+
+
+def test_drink_rejects_invalid_sip_mode(client):
+    register(client)
+    client.post("/api/setup", json={"weight_lb": 170, "is_male": True})
+    add = client.post("/api/drink", json={"catalog_id": "bud-light", "count": 1, "hours_ago": 0, "sip_minutes": 20})
+    assert add.status_code == 400
+    assert "sip_minutes" in add.get_json()["error"]
+
+
 def test_reset_keeps_profile_and_clears_events(client):
     register(client)
     client.post("/api/setup", json={"weight_lb": 150, "is_male": True})

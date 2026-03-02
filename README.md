@@ -1,6 +1,6 @@
 # BAC Tracker Web
 
-Mobile-first BAC tracking web app focused on real-time safety decisions, session analytics, and group coordination.
+Mobile-first BAC tracking web app focused on real-time safety decisions, session analytics, and group coordination for college nights out.
 
 Live Demo: https://bac-tracker-web.onrender.com
 
@@ -17,6 +17,13 @@ Built as an internship portfolio project to demonstrate:
 - end-to-end product ownership (backend + frontend + deployment)
 - practical system design for stateful user workflows
 - disciplined testing and iterative feature delivery
+
+## Interviewer Quick Read
+
+- Problem: "Can I drive?" and "Is my group safe?" are high-stakes decisions made in noisy, fast-moving environments.
+- Product angle: one-tap logging, conservative guidance, and social safety tools over perfect scientific precision.
+- Engineering angle: clear API boundaries, persistent user/session model, mobile-first UX, and automated tests.
+- Delivery angle: live deployment, CI, and documented operational checklist for pilot readiness.
 
 Important: this is an educational estimator, not a legal or medical device. Never drive after drinking.
 
@@ -35,6 +42,7 @@ Important: this is an educational estimator, not a legal or medical device. Neve
 ### Real-Time BAC Tracking
 - BAC curve using Widmark-style modeling
 - Drink catalog (calories, carbs, sugar)
+- Optional Sip Mode (`15`/`30` min) for better pacing estimates while keeping one-tap logging
 - Live BAC chart + legal-limit overlay
 - Drive-risk guidance messaging
 
@@ -117,7 +125,7 @@ bac_tracker_web/
 ## Quick Demo (60 Seconds)
 
 1. Register account (name/email/password/gender/weight)
-2. Add a few drinks on `Live Track`
+2. Add a few drinks on `Live Track` (try Sip Mode `15` or `30` min)
 3. Set a target time in "Need to be sharp"
 4. Open `Social` and create a group
 5. Create a guardian link and open it in a new tab
@@ -151,6 +159,7 @@ python -m pytest -q -p no:debugging
 
 - Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
 - Tracking: `/api/setup`, `/api/drink`, `/api/state`, `/api/reset`
+  - `/api/drink` supports `catalog_id`, `count`, `hours_ago`, `sip_minutes(0|15|30)`
 - Sessions: `/api/session/save`, `/api/session/list`, `/api/session/dates`, `/api/session/load`, `/api/session/debrief`
 - Social:
   - `/api/social/status`, `/api/social/feed`
@@ -200,6 +209,13 @@ Expected:
 - Real BAC varies by many factors not fully modeled here.
 - Results should be treated as conservative awareness guidance only.
 - Never use this app as legal proof that driving is safe.
+
+## Engineering Notes
+
+- One event per logged drink is intentional: keeps UX fast and drink history understandable.
+- Sip Mode applies a midpoint-time approximation instead of splitting one drink into many events to avoid inflating drink counts.
+- Social sharing is explicit opt-in with account-level and group-level controls.
+- Session persistence supports active-session autosave and date-based history retrieval.
 
 ## License
 

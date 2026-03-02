@@ -2009,16 +2009,16 @@ function refreshQuickAdd() {
 }
 
 async function addOneNow(catalogId) {
-  await addDrink(catalogId, 1, 0);
+  await addDrink(catalogId, 1, 0, getSipMinutes());
   saveLastDrink(catalogId);
   addDrinkUsed(catalogId);
 }
 
-async function addDrink(catalogId, count, hoursAgoVal) {
+async function addDrink(catalogId, count, hoursAgoVal, sipMinutes = 0) {
   if (addDrinkInFlight) return;
   addDrinkInFlight = true;
   setDrinkButtonsBusy(true);
-  const body = { catalog_id: catalogId, count, hours_ago: hoursAgoVal };
+  const body = { catalog_id: catalogId, count, hours_ago: hoursAgoVal, sip_minutes: sipMinutes };
   try {
     await fetchJSON(API.drink, { method: "POST", body: JSON.stringify(body) });
     await refreshState();
@@ -2041,15 +2041,22 @@ async function setup() {
 }
 
 function getHoursAgo() {
-  const active = document.querySelector(".time-ago-chips .chip.active");
+  const active = document.querySelector("#time-ago-chips .chip.active");
   return active ? parseFloat(active.dataset.hours) : 0;
+}
+
+function getSipMinutes() {
+  const active = document.querySelector("#sip-mode-chips .chip.active");
+  const mins = parseInt(active?.dataset?.sipMinutes || "0", 10);
+  if (mins === 15 || mins === 30) return mins;
+  return 0;
 }
 
 async function onAddCount(e) {
   const count = parseInt(e.target.dataset.count, 10) || 1;
   const catalogId = $("drink-catalog").value;
   if (!catalogId) return;
-  await addDrink(catalogId, count, getHoursAgo());
+  await addDrink(catalogId, count, getHoursAgo(), getSipMinutes());
   saveLastDrink(catalogId);
   addDrinkUsed(catalogId);
 }
@@ -2225,10 +2232,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.addEventListener("click", onAddCount);
   });
 
-  document.querySelectorAll(".time-ago-chips .chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      document.querySelectorAll(".time-ago-chips .chip").forEach((c) => c.classList.remove("active"));
-      chip.classList.add("active");
+  document.querySelectorAll(".time-ago-chips").forEach((group) => {
+    group.querySelectorAll(".chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        group.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+        chip.classList.add("active");
+      });
     });
   });
 
