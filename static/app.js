@@ -2209,7 +2209,9 @@ async function refreshState() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => reg.unregister());
+    }).catch(() => {});
   }
 
   setDrinkButtonsBusy(true);

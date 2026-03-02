@@ -67,6 +67,12 @@ async function register() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => reg.unregister());
+    }).catch(() => {});
+  }
+
   setAuthMode("login");
   try {
     const me = await fetchJSON(API.authMe);
