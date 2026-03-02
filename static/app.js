@@ -94,7 +94,11 @@ async function fetchJSON(url, options = {}) {
     ...options,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -186,7 +190,10 @@ function setAuthUI(authenticated, user = null) {
     renderEmergencyContacts();
     renderAccountPrivacySummary(null);
     renderSocialStatus();
-    window.location.href = "/login";
+    setAuthStatus("Session expired. Redirecting to login...");
+    if (window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
     return;
   }
 
@@ -268,31 +275,52 @@ function renderEmergencyContacts() {
 }
 
 async function refreshAuth() {
+  let data = null;
   try {
-    const data = await fetchJSON(API.authMe);
-    currentUser = data.authenticated ? data.user : null;
-    serverFavorites = [];
-    setAuthUI(Boolean(currentUser), currentUser);
-    renderMyFriendProfile();
-    populateAccountProfileForm();
-    if (currentUser) {
-      attemptedAutoSetup = false;
-      await processPendingInviteCode();
-      await loadServerFavorites();
-      await loadSavedSessions();
-      await loadSocial();
-      await loadAccountPrivacySummary();
-      await loadEmergencyContacts();
-      updateAccountShareStatus();
-      await refreshState();
-    } else {
-      window.location.href = "/login";
+    data = await fetchJSON(API.authMe);
+  } catch (err) {
+    setAuthStatus("Could not reach server. Pull to refresh.");
+    return;
+  }
+
+  currentUser = data.authenticated ? data.user : null;
+  serverFavorites = [];
+  setAuthUI(Boolean(currentUser), currentUser);
+  renderMyFriendProfile();
+  populateAccountProfileForm();
+
+  if (!currentUser) {
+    return;
+  }
+
+  attemptedAutoSetup = false;
+  try {
+    await processPendingInviteCode();
+  } catch (_) {}
+  try {
+    await loadServerFavorites();
+  } catch (_) {}
+  try {
+    await loadSavedSessions();
+  } catch (_) {}
+  try {
+    await loadSocial();
+  } catch (_) {}
+  try {
+    await loadAccountPrivacySummary();
+  } catch (_) {}
+  try {
+    await loadEmergencyContacts();
+  } catch (_) {}
+  updateAccountShareStatus();
+  try {
+    await refreshState();
+  } catch (err) {
+    if (err?.status === 401) {
+      setAuthUI(false);
+      return;
     }
-  } catch (_) {
-    currentUser = null;
-    serverFavorites = [];
-    window.location.href = "/login";
-    renderMyFriendProfile();
+    setAuthStatus("Signed in, but some data failed to load.");
   }
 }
 
@@ -2118,7 +2146,7 @@ async function refreshState() {
   try {
     state = await fetchJSON(url);
   } catch (err) {
-    if (String(err.message || "").toLowerCase().includes("authentication")) {
+    if (err?.status === 401 || String(err.message || "").toLowerCase().includes("authentication")) {
       setAuthUI(false);
       return;
     }
