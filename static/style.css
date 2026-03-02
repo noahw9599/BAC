@@ -119,6 +119,44 @@ header h1 {
   border-color: var(--primary);
 }
 
+.current-view-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: var(--space-2);
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(8, 20, 43, 0.72);
+  position: sticky;
+  top: 0.35rem;
+  z-index: 5;
+}
+
+.current-view-btn {
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0b1326;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.86rem;
+}
+
+.current-view-btn.active {
+  background: var(--primary);
+  color: var(--bg);
+  border-color: var(--primary);
+}
+
+.current-subpanel {
+  display: none;
+}
+
+.current-subpanel.active {
+  display: block;
+}
+
 /* ---- More options (details/summary) ---- */
 .more-options {
   margin-bottom: var(--space-2);
