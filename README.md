@@ -13,18 +13,6 @@ Quick Navigation:
 - Tests: `#test-commands`
 - Deployment: `#deployment-render`
 
-Built as an internship portfolio project to demonstrate:
-- end-to-end product ownership (backend + frontend + deployment)
-- practical system design for stateful user workflows
-- disciplined testing and iterative feature delivery
-
-## Interviewer Quick Read
-
-- Problem: "Can I drive?" and "Is my group safe?" are high-stakes decisions made in noisy, fast-moving environments.
-- Product angle: one-tap logging, conservative guidance, and social safety tools over perfect scientific precision.
-- Engineering angle: clear API boundaries, persistent user/session model, mobile-first UX, and automated tests.
-- Delivery angle: live deployment, CI, and documented operational checklist for pilot readiness.
-
 Important: this is an educational estimator, not a legal or medical device. Never drive after drinking.
 
 ## What Makes This Project Strong
@@ -134,7 +122,7 @@ bac_tracker_web/
 ## Local Development
 
 ```powershell
-cd C:\Users\noahw\Documents\Projects\bac_tracker_web
+cd <path-to-repo>\bac_tracker_web
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
@@ -183,8 +171,7 @@ If you are on Render free tier and cannot attach a disk, use managed Postgres:
 
 1. Create a Render Postgres database.
 2. In your web service `Environment`, set:
-   - `APP_DB_PATH=<your Postgres connection string>`
-   - or `DATABASE_URL=<your Postgres connection string>` (app supports this fallback)
+   - `DATABASE_URL=<your Postgres connection string>`
 3. Keep `SESSION_COOKIE_SECURE=1` for HTTPS deployments.
 4. Do not use `/tmp/*.db` for auth/session data if you need persistence.
 
