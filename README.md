@@ -6,6 +6,7 @@ Live Demo: https://bac-tracker-web.onrender.com
 
 Quick Navigation:
 - Live Demo: https://bac-tracker-web.onrender.com
+- Interview Guide: `INTERVIEW_GUIDE.md`
 - Quick Demo Flow: `#quick-demo-60-seconds`
 - Pilot checklist: `PILOT_READINESS_CHECKLIST.md`
 - Architecture: `#architecture-high-level`
