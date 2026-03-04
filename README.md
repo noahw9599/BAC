@@ -2,10 +2,10 @@
 
 Mobile-first BAC tracking web app focused on real-time safety decisions, session analytics, and group coordination for college nights out.
 
-Live Demo: https://bac-tracker-web.onrender.com
+Live Demo: https://bac-tracker-web-k0qa.onrender.com/
 
 Quick Navigation:
-- Live Demo: https://bac-tracker-web.onrender.com
+- Live Demo: https://bac-tracker-web-k0qa.onrender.com/
 - Quick Demo Flow: `#quick-demo-60-seconds`
 - Pilot checklist: `PILOT_READINESS_CHECKLIST.md`
 - Architecture: `#architecture-high-level`
@@ -177,13 +177,13 @@ If you are on Render free tier and cannot attach a disk, use managed Postgres:
 
 For feedback feed:
 
-`https://<your-app>.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
+`https://bac-tracker-web-k0qa.onrender.com/api/feedback/recent?token=<ADMIN_TOKEN>`
 
 ### Production DB Verification (Before Pilot)
 
 Use this admin check to confirm your deployment can initialize both auth/session and feedback storage:
 
-`https://<your-app>.onrender.com/api/admin/db-check?token=<ADMIN_TOKEN>`
+`https://bac-tracker-web-k0qa.onrender.com/api/admin/db-check?token=<ADMIN_TOKEN>`
 
 Expected:
 - `"ok": true`
