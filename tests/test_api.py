@@ -50,6 +50,7 @@ def test_healthz(client):
     res = client.get("/healthz")
     assert res.status_code == 200
     assert res.get_json() == {"ok": True}
+    assert res.headers.get("X-Request-ID")
 
 
 def test_privacy_page_is_public(client):

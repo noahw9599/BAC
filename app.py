@@ -8,6 +8,7 @@ import os
 import csv
 import io
 import time
+import uuid
 from urllib.parse import urlparse
 from datetime import datetime
 from datetime import timedelta
@@ -140,14 +141,24 @@ LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 @app.before_request
 def _start_timer():
     g._request_started = time.time()
+    g._request_id = str(uuid.uuid4())
 
 
 @app.after_request
 def _log_request(response):
     started = getattr(g, "_request_started", None)
+    request_id = getattr(g, "_request_id", None) or str(uuid.uuid4())
+    response.headers["X-Request-ID"] = request_id
     if started is not None:
         elapsed_ms = int((time.time() - started) * 1000)
-        app.logger.info("%s %s -> %s in %sms", request.method, request.path, response.status_code, elapsed_ms)
+        app.logger.info(
+            "request_id=%s %s %s -> %s in %sms",
+            request_id,
+            request.method,
+            request.path,
+            response.status_code,
+            elapsed_ms,
+        )
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
