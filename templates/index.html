@@ -52,8 +52,6 @@
           <p class="safety-banner-title">Safety first</p>
           <p class="safety-banner-body">Educational estimate only, not legal/medical advice. Never drive after drinking. Use emergency actions if anyone is at risk.</p>
         </div>
-        <p class="mini-help">Fast flow: tap a drink, check your status, keep your group informed.</p>
-        <div class="quick-add" id="quick-add"></div>
         <div class="current-view-nav" id="current-view-nav">
           <button type="button" class="current-view-btn active" data-current-view="log">Log</button>
           <button type="button" class="current-view-btn" data-current-view="plan">Plan</button>
@@ -62,6 +60,76 @@
         </div>
 
         <div class="current-subpanel active" data-current-view="log">
+
+        <div class="stats stats-primary" id="stats">
+          <div class="stat stat-primary"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
+          <div class="stat stat-primary"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
+          <div class="stat stat-primary"><span class="stat-value" id="drive-pill">Checking...</span><span class="stat-label">Drive status</span></div>
+        </div>
+
+        <div class="quick-log-actions card-lite">
+          <h3>Quick add</h3>
+          <p class="mini-help">Tap a drink first, then check your curve and drive status.</p>
+          <div class="quick-add" id="quick-add"></div>
+        </div>
+
+        <div class="chart-card card-lite">
+          <div class="chart-head">
+            <h3>BAC trend</h3>
+            <p class="mini-help" id="chart-pace-metric">Pace: -- drinks/hr</p>
+          </div>
+          <div class="friend-actions">
+            <button type="button" class="chip chart-mode" data-mode="full">Full night</button>
+            <button type="button" class="chip active chart-mode" data-mode="last6">Last 6h</button>
+            <button type="button" class="chip chart-mode" data-mode="untilSober">Until sober</button>
+            <button type="button" class="chip" id="btn-chart-pace">Show pace projection</button>
+          </div>
+          <div class="chart-insights" id="chart-insights">
+            <div class="mini-card"><p class="mini-title">Peak BAC</p><p class="mini-value" id="peak-bac">0.000</p></div>
+            <div class="mini-card"><p class="mini-title">Below 0.08 in</p><p class="mini-value" id="below-legal-in">-</p></div>
+            <div class="mini-card"><p class="mini-title">Risk zone now</p><p class="mini-value" id="risk-zone">None</p></div>
+          </div>
+          <div class="chart-cursor-controls">
+            <label for="chart-time-slider">Timeline cursor</label>
+            <input type="range" id="chart-time-slider" min="-6" max="12" step="0.25" value="0">
+            <div class="chart-cursor-readout" id="chart-time-readout">Now</div>
+            <div class="chart-cursor-detail" id="chart-time-detail">Slide to inspect past/future BAC at any timestamp.</div>
+          </div>
+          <p class="mini-help" id="chart-timeline-hints">Below-limit and sober estimates update live as you log drinks.</p>
+          <div class="chart-wrap chart-wrap-large"><canvas id="bac-chart" aria-label="BAC over time"></canvas></div>
+        </div>
+
+        <div class="drive-card card-lite">
+          <h3>Drive guidance</h3>
+          <p class="mini-help">Conservative estimate only, not legal advice. If unsure, do not drive.</p>
+          <p class="drive-status" id="drive-status">No data yet</p>
+          <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
+          <p class="drive-action" id="drive-action"></p>
+          <div class="friend-actions">
+            <button type="button" class="btn btn-secondary" id="btn-drive-ride">Get a ride</button>
+            <button type="button" class="btn btn-danger" id="btn-drive-911">Call 911</button>
+            <button type="button" class="btn btn-secondary" id="btn-drive-share">Share status</button>
+          </div>
+        </div>
+
+        <div class="risk-alert card-lite" id="risk-alert" style="display:none;">
+          <h3>Immediate safety alert</h3>
+          <p class="group-summary" id="risk-alert-message"></p>
+          <div class="friend-actions">
+            <button type="button" class="btn btn-danger" id="btn-emergency-911">Call 911 now</button>
+            <button type="button" class="btn btn-secondary" id="btn-risk-ride">Call ride/campus help</button>
+          </div>
+        </div>
+
+        <details class="more-options">
+          <summary class="more-options-title">Session totals</summary>
+          <div class="stats stats-secondary">
+            <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
+            <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
+            <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
+            <div class="stat"><span class="stat-value" id="total-sugar">0</span><span class="stat-label">Sugar</span></div>
+          </div>
+        </details>
 
         <details class="more-options" id="more-options">
           <summary class="more-options-title">More drink options</summary>
@@ -103,75 +171,6 @@
             </div>
           </div>
         </details>
-
-        <div class="stats stats-primary" id="stats">
-          <div class="stat stat-primary"><span class="stat-value" id="bac-now">0.000</span><span class="stat-label">BAC %</span></div>
-          <div class="stat stat-primary"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
-          <div class="stat stat-primary"><span class="stat-value" id="drive-pill">Checking...</span><span class="stat-label">Drive status</span></div>
-        </div>
-        <details class="more-options">
-          <summary class="more-options-title">Session totals</summary>
-          <div class="stats stats-secondary">
-            <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
-            <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
-            <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
-            <div class="stat"><span class="stat-value" id="total-sugar">0</span><span class="stat-label">Sugar</span></div>
-          </div>
-        </details>
-
-        <div class="chart-card card-lite">
-          <div class="chart-head">
-            <h3>BAC trend</h3>
-            <p class="mini-help">Watch your curve, legal-limit line, and timing estimates.</p>
-            <p class="mini-help" id="chart-pace-metric">Pace: -- drinks/hr</p>
-          </div>
-          <div class="friend-actions">
-            <button type="button" class="chip chart-mode" data-mode="full">Full night</button>
-            <button type="button" class="chip active chart-mode" data-mode="last6">Last 6h</button>
-            <button type="button" class="chip chart-mode" data-mode="untilSober">Until sober</button>
-            <button type="button" class="chip" id="btn-chart-pace">Show pace projection</button>
-          </div>
-          <div class="chart-insights" id="chart-insights">
-            <div class="mini-card"><p class="mini-title">Peak BAC</p><p class="mini-value" id="peak-bac">0.000</p></div>
-            <div class="mini-card"><p class="mini-title">Below 0.08 in</p><p class="mini-value" id="below-legal-in">-</p></div>
-            <div class="mini-card"><p class="mini-title">Risk zone now</p><p class="mini-value" id="risk-zone">None</p></div>
-          </div>
-          <div class="chart-cursor-controls">
-            <label for="chart-time-slider">Timeline cursor</label>
-            <input type="range" id="chart-time-slider" min="-6" max="12" step="0.25" value="0">
-            <div class="chart-cursor-readout" id="chart-time-readout">Now</div>
-            <div class="chart-cursor-detail" id="chart-time-detail">Slide to inspect past/future BAC at any timestamp.</div>
-          </div>
-          <p class="mini-help" id="chart-timeline-hints">Keep this chart simple: current BAC curve plus legal-limit context.</p>
-          <div class="chart-wrap chart-wrap-large"><canvas id="bac-chart" aria-label="BAC over time"></canvas></div>
-        </div>
-
-        <div class="drive-card card-lite">
-          <h3>Drive guidance</h3>
-          <p class="mini-help">Conservative estimate only, not legal advice. If unsure, do not drive.</p>
-          <p class="drive-status" id="drive-status">No data yet</p>
-          <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
-          <p class="drive-action" id="drive-action"></p>
-          <div class="friend-actions">
-            <button type="button" class="btn btn-secondary" id="btn-drive-ride">Get a ride</button>
-            <button type="button" class="btn btn-danger" id="btn-drive-911">Call 911</button>
-            <button type="button" class="btn btn-secondary" id="btn-drive-share">Share status</button>
-          </div>
-        </div>
-
-        <div class="risk-alert card-lite" id="risk-alert" style="display:none;">
-          <h3>Immediate safety alert</h3>
-          <p class="group-summary" id="risk-alert-message"></p>
-          <div class="friend-actions">
-            <button type="button" class="btn btn-danger" id="btn-emergency-911">Call 911 now</button>
-            <button type="button" class="btn btn-secondary" id="btn-risk-ride">Call ride/campus help</button>
-          </div>
-        </div>
-        <div class="card-lite">
-          <h3>Night nudges</h3>
-          <p class="mini-help">Short reminders to keep your night safer.</p>
-          <div id="retention-nudges" class="friend-list"></div>
-        </div>
         </div>
 
         <div class="current-subpanel" data-current-view="plan">
