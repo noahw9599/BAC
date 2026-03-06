@@ -28,6 +28,7 @@ from bac_app.auth_store import (
     find_user_by_invite_code,
     find_user_by_username,
     get_user_by_id,
+    get_schema_version,
     get_group_role,
     get_group_snapshot,
     get_user_session_payload,
@@ -1870,11 +1871,15 @@ def api_admin_db_check():
     checks: dict[str, Any] = {
         "auth_db_init_ok": False,
         "feedback_db_init_ok": False,
+        "auth_schema_version_ok": False,
     }
     errors: list[str] = []
+    auth_schema_version: int | None = None
     try:
         _ensure_auth_db()
         checks["auth_db_init_ok"] = True
+        auth_schema_version = get_schema_version(auth_path)
+        checks["auth_schema_version_ok"] = auth_schema_version is not None
     except Exception as exc:
         errors.append(f"auth_db: {exc}")
     try:
@@ -1890,6 +1895,7 @@ def api_admin_db_check():
             "db_target_hint": db_target_hint,
             "session_cookie_secure": bool(app.config.get("SESSION_COOKIE_SECURE")),
             "admin_token_configured": bool(_admin_token()),
+            "auth_schema_version": auth_schema_version,
             "checks": checks,
             "errors": errors,
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),

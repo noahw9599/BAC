@@ -21,6 +21,9 @@ except Exception:  # pragma: no cover
     tuple_row = None
 
 
+AUTH_SCHEMA_VERSION = 1
+
+
 def _is_postgres_db(db_path: str) -> bool:
     path = str(db_path).strip()
     return path.startswith("postgres://") or path.startswith("postgresql://")
@@ -326,6 +329,19 @@ def init_db(db_path: str) -> None:
                 if not invite_code:
                     invite_code = _unique_invite_code(conn)
                 conn.execute("UPDATE users SET username = ?, invite_code = ? WHERE id = ?", (username, invite_code, user_id))
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("DELETE FROM app_metadata WHERE key = ?", ("schema_version",))
+            conn.execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+                ("schema_version", str(AUTH_SCHEMA_VERSION)),
+            )
             conn.commit()
         return
 
@@ -371,6 +387,19 @@ def init_db(db_path: str) -> None:
             if not invite_code:
                 invite_code = _unique_invite_code(conn)
             conn.execute("UPDATE users SET username = ?, invite_code = ? WHERE id = ?", (username, invite_code, user_id))
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("DELETE FROM app_metadata WHERE key = ?", ("schema_version",))
+        conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            ("schema_version", str(AUTH_SCHEMA_VERSION)),
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS saved_sessions (
@@ -752,6 +781,20 @@ def delete_user_account(db_path: str, *, user_id: int) -> bool:
         conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (int(user_id),))
         cur = conn.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
         conn.commit()
+        return cur.rowcount > 0
+
+
+def get_schema_version(db_path: str) -> int | None:
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT value FROM app_metadata WHERE key = ?", ("schema_version",)).fetchone()
+        if row is None:
+            return None
+        value = row["value"] if isinstance(row, sqlite3.Row) else row[0]
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
         return cur.rowcount > 0
 
 

@@ -5,7 +5,7 @@ import io
 
 import pytest
 
-from app import app
+from app import LOGIN_ATTEMPTS, RATE_LIMIT_BUCKETS, app
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +13,8 @@ def env_setup(tmp_path, monkeypatch):
     monkeypatch.setenv("FEEDBACK_DB_PATH", str(tmp_path / "feedback.db"))
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "app.db"))
     monkeypatch.setenv("ADMIN_TOKEN", "test-token")
+    LOGIN_ATTEMPTS.clear()
+    RATE_LIMIT_BUCKETS.clear()
     yield
 
 
@@ -69,6 +71,8 @@ def test_admin_db_check_requires_token(client):
     assert body["ok"] is True
     assert body["checks"]["auth_db_init_ok"] is True
     assert body["checks"]["feedback_db_init_ok"] is True
+    assert body["checks"]["auth_schema_version_ok"] is True
+    assert isinstance(body["auth_schema_version"], int)
 
 
 def test_state_unconfigured_unauthenticated(client):
@@ -472,6 +476,14 @@ def test_feedback_validation(client):
 
     bad_rating = client.post("/api/feedback", json={"message": "x", "rating": 99})
     assert bad_rating.status_code == 400
+
+
+def test_feedback_rate_limit(client):
+    for _ in range(8):
+        ok = client.post("/api/feedback", json={"message": "spam check"})
+        assert ok.status_code == 200
+    limited = client.post("/api/feedback", json={"message": "spam check"})
+    assert limited.status_code == 429
 
 
 def test_drive_advice_do_not_drive_when_high_bac(client):
