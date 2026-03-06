@@ -147,8 +147,8 @@ CAMPUS_PRESETS = [
     {
         "id": "uf",
         "name": "University of Florida",
-        "safe_ride_label": "SNAP Safety Escort (352-392-SNAP)",
-        "safe_ride_url": "https://police.ufl.edu/how-do-i/brochures-safety-tips/persons-crimes/",
+        "safe_ride_label": "SNAP Safety Escort (352-392-7627)",
+        "safe_ride_url": "https://offcampus.ufl.edu/resources/safety/crime-prevention-resources/",
         "non_emergency_phone": "352-392-1111",
         "emergency_phone": "911",
     },
