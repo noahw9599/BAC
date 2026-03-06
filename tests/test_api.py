@@ -55,6 +55,32 @@ def test_healthz(client):
     assert res.headers.get("X-Request-ID")
 
 
+def test_readyz(client):
+    res = client.get("/readyz")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body["ready"] is True
+    assert body["checks"]["auth_db_init_ok"] is True
+    assert body["checks"]["feedback_db_init_ok"] is True
+    assert body["errors"] == []
+
+
+def test_readyz_unhealthy_when_auth_storage_fails(client, monkeypatch):
+    def _boom():
+        raise RuntimeError("auth storage unavailable")
+
+    monkeypatch.setattr("app._ensure_auth_db", _boom)
+    res = client.get("/readyz")
+    assert res.status_code == 503
+    body = res.get_json()
+    assert body["ok"] is False
+    assert body["ready"] is False
+    assert body["checks"]["auth_db_init_ok"] is False
+    assert body["checks"]["feedback_db_init_ok"] is True
+    assert any("auth storage unavailable" in item for item in body["errors"])
+
+
 def test_privacy_page_is_public(client):
     res = client.get("/privacy")
     assert res.status_code == 200

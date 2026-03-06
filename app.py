@@ -142,10 +142,12 @@ CAMPUS_PRESETS = [
 CATALOG_CACHE: dict[str, Any] | None = None
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 RATE_LIMIT_BUCKETS: dict[str, dict[str, list[float]]] = {}
+STARTUP_CHECK_DONE = False
 
 
 @app.before_request
 def _start_timer():
+    _run_startup_storage_checks()
     g._request_started = time.time()
     g._request_id = str(uuid.uuid4())
 
@@ -205,6 +207,24 @@ def _ensure_auth_db() -> None:
         path_obj = Path(db_path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
     init_auth_db(str(db_path))
+
+
+def _run_startup_storage_checks() -> None:
+    global STARTUP_CHECK_DONE
+    if STARTUP_CHECK_DONE:
+        return
+    auth_path = _auth_db_path()
+    feedback_path = _feedback_db_path()
+    app.logger.info("startup storage check auth=%s feedback=%s", auth_path, feedback_path)
+    try:
+        _ensure_auth_db()
+        _ensure_feedback_db()
+    except Exception:
+        app.logger.exception("startup storage check failed")
+        raise
+    STARTUP_CHECK_DONE = True
+
+
 
 
 def _admin_token() -> str:
@@ -619,6 +639,43 @@ def privacy_page():
 @app.route("/healthz")
 def healthz():
     return jsonify({"ok": True})
+
+
+@app.route("/readyz")
+def readyz():
+    auth_path = _auth_db_path()
+    db_engine = "postgres" if _is_db_url(auth_path) else "sqlite"
+    checks: dict[str, Any] = {
+        "auth_db_init_ok": False,
+        "feedback_db_init_ok": False,
+    }
+    errors: list[str] = []
+    try:
+        _ensure_auth_db()
+        checks["auth_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"auth_db: {exc}")
+    try:
+        _ensure_feedback_db()
+        checks["feedback_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"feedback_db: {exc}")
+
+    ok = len(errors) == 0
+    status_code = 200 if ok else 503
+    return (
+        jsonify(
+            {
+                "ok": ok,
+                "ready": ok,
+                "db_engine": db_engine,
+                "checks": checks,
+                "errors": errors,
+                "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+        ),
+        status_code,
+    )
 
 
 @app.route("/api/auth/me")
