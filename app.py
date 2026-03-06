@@ -7,6 +7,7 @@ Run from project root:
 import os
 import csv
 import io
+import secrets
 import time
 import uuid
 from urllib.parse import urlparse
@@ -99,15 +100,20 @@ MAX_HOURS_AGO = 24.0
 SESSION_KEY = "bac_session"
 AUTH_USER_KEY = "auth_user_id"
 TRACKING_META_KEY = "tracking_meta"
+CSRF_TOKEN_KEY = "csrf_token"
 INACTIVITY_EXPIRE_HOURS = 3.0
 MAX_ACTIVE_SESSION_HOURS = 12.0
 AUTOSAVE_INTERVAL_MINUTES = 15.0
 LOGIN_RATE_LIMIT_WINDOW_SEC = 300
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
+PASSWORD_RESET_RATE_LIMIT_WINDOW_SEC = 3600
+PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS = 5
 FEEDBACK_RATE_LIMIT_WINDOW_SEC = 60
 FEEDBACK_RATE_LIMIT_MAX_REQUESTS = 8
 SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC = 60
 SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS = 20
+DEFAULT_WRITE_RATE_LIMIT_WINDOW_SEC = 60
+DEFAULT_WRITE_RATE_LIMIT_MAX_REQUESTS = 90
 ALLOWED_SIP_MINUTES = {0, 15, 30}
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
@@ -150,6 +156,21 @@ def _start_timer():
     _run_startup_storage_checks()
     g._request_started = time.time()
     g._request_id = str(uuid.uuid4())
+    if _csrf_required_for_request():
+        token = request.headers.get("X-CSRF-Token", "")
+        if not _is_valid_csrf_token(token):
+            return jsonify({"error": "Invalid CSRF token"}), 403
+    write_allowed, retry_after = _enforce_global_write_rate_limit()
+    if not write_allowed:
+        return (
+            jsonify(
+                {
+                    "error": "Too many write requests. Slow down and try again.",
+                    "retry_after_sec": retry_after,
+                }
+            ),
+            429,
+        )
 
 
 @app.after_request
@@ -259,6 +280,91 @@ def _check_rate_limit(bucket: str, key: str, *, window_sec: int, max_requests: i
     attempts.append(now)
     bucket_map[key] = attempts
     return True
+
+
+def _env_int(name: str, default: int, *, min_value: int, max_value: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, parsed))
+
+
+def _csrf_enabled() -> bool:
+    if app.config.get("TESTING"):
+        return False
+    raw = os.environ.get("CSRF_PROTECT", "1")
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _ensure_csrf_token(*, rotate: bool = False) -> str:
+    current = flask_session.get(CSRF_TOKEN_KEY)
+    if rotate or not isinstance(current, str) or not current:
+        current = secrets.token_urlsafe(24)
+        flask_session[CSRF_TOKEN_KEY] = current
+    return current
+
+
+def _csrf_required_for_request() -> bool:
+    if not _csrf_enabled():
+        return False
+    if request.method not in {"POST", "PATCH", "DELETE"}:
+        return False
+    if not request.path.startswith("/api/"):
+        return False
+    if _require_user_id() is None:
+        return False
+    if request.path in {
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/password-reset/request",
+        "/api/auth/password-reset/confirm",
+        "/api/auth/verify-email",
+    }:
+        return False
+    return True
+
+
+def _is_valid_csrf_token(token: str) -> bool:
+    expected = flask_session.get(CSRF_TOKEN_KEY)
+    if not isinstance(expected, str) or not expected:
+        return False
+    provided = str(token or "").strip()
+    return bool(provided) and secrets.compare_digest(expected, provided)
+
+
+def _enforce_global_write_rate_limit() -> tuple[bool, int]:
+    if request.method not in {"POST", "PATCH", "DELETE"}:
+        return True, 0
+    if not request.path.startswith("/api/"):
+        return True, 0
+    if request.path in {"/api/auth/login", "/api/feedback/recent"}:
+        return True, 0
+
+    window_sec = _env_int(
+        "WRITE_RATE_LIMIT_WINDOW_SEC",
+        DEFAULT_WRITE_RATE_LIMIT_WINDOW_SEC,
+        min_value=1,
+        max_value=3600,
+    )
+    max_requests = _env_int(
+        "WRITE_RATE_LIMIT_MAX_REQUESTS",
+        DEFAULT_WRITE_RATE_LIMIT_MAX_REQUESTS,
+        min_value=1,
+        max_value=5000,
+    )
+    user_id = _require_user_id()
+    key = f"user:{user_id}" if user_id is not None else f"ip:{request.remote_addr or 'unknown'}"
+    allowed = _check_rate_limit(
+        "global_write",
+        key,
+        window_sec=window_sec,
+        max_requests=max_requests,
+    )
+    return allowed, window_sec
 
 
 def _parse_bool(value: Any, default: bool = True) -> bool:
@@ -680,10 +786,11 @@ def readyz():
 
 @app.route("/api/auth/me")
 def api_auth_me():
+    csrf_token = _ensure_csrf_token()
     user = _get_current_user()
     if user is None:
-        return jsonify({"authenticated": False, "user": None})
-    return jsonify({"authenticated": True, "user": user})
+        return jsonify({"authenticated": False, "user": None, "csrf_token": csrf_token})
+    return jsonify({"authenticated": True, "user": user, "csrf_token": csrf_token})
 
 
 @app.route("/api/auth/register", methods=["POST"])
@@ -736,7 +843,7 @@ def api_auth_register():
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
-    return jsonify({"ok": True, "user": user})
+    return jsonify({"ok": True, "user": user, "csrf_token": _ensure_csrf_token(rotate=True)})
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -756,8 +863,9 @@ def api_auth_login():
 
     flask_session.permanent = True
     flask_session[AUTH_USER_KEY] = user["id"]
+    csrf_token = _ensure_csrf_token(rotate=True)
     LOGIN_ATTEMPTS.pop(identifier, None)
-    return jsonify({"ok": True, "user": user})
+    return jsonify({"ok": True, "user": user, "csrf_token": csrf_token})
 
 
 @app.route("/api/auth/password-reset/request", methods=["POST"])
@@ -767,6 +875,26 @@ def api_auth_password_reset_request():
     email = str(data.get("email", "")).strip().lower()
     if "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
+    reset_window = _env_int(
+        "PASSWORD_RESET_RATE_LIMIT_WINDOW_SEC",
+        PASSWORD_RESET_RATE_LIMIT_WINDOW_SEC,
+        min_value=10,
+        max_value=86400,
+    )
+    reset_cap = _env_int(
+        "PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS",
+        PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS,
+        min_value=1,
+        max_value=100,
+    )
+    key = f"{request.remote_addr or 'unknown'}:{email}"
+    if not _check_rate_limit(
+        "password_reset_request",
+        key,
+        window_sec=reset_window,
+        max_requests=reset_cap,
+    ):
+        return jsonify({"error": "Too many reset requests. Please try again later."}), 429
     token = create_password_reset_token(_auth_db_path(), email=email)
     if token:
         app.logger.info("Password reset token created for email=%s token=%s", email, token)
@@ -801,6 +929,7 @@ def api_auth_verify_email():
 def api_auth_logout():
     flask_session.pop(AUTH_USER_KEY, None)
     flask_session.pop(SESSION_KEY, None)
+    flask_session.pop(CSRF_TOKEN_KEY, None)
     return jsonify({"ok": True})
 
 
@@ -911,6 +1040,7 @@ def api_account_delete():
         return jsonify({"error": "Account not found"}), 404
     flask_session.pop(AUTH_USER_KEY, None)
     flask_session.pop(SESSION_KEY, None)
+    flask_session.pop(CSRF_TOKEN_KEY, None)
     return jsonify({"ok": True})
 
 

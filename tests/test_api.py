@@ -81,6 +81,53 @@ def test_readyz_unhealthy_when_auth_storage_fails(client, monkeypatch):
     assert any("auth storage unavailable" in item for item in body["errors"])
 
 
+def test_global_write_rate_limit(client, monkeypatch):
+    monkeypatch.setenv("WRITE_RATE_LIMIT_WINDOW_SEC", "60")
+    monkeypatch.setenv("WRITE_RATE_LIMIT_MAX_REQUESTS", "1")
+
+    first = client.post("/api/auth/password-reset/request", json={"email": "limit@example.edu"})
+    assert first.status_code == 200
+
+    second = client.post("/api/auth/password-reset/request", json={"email": "limit@example.edu"})
+    assert second.status_code == 429
+    payload = second.get_json()
+    assert "Too many write requests" in payload["error"]
+    assert payload["retry_after_sec"] == 60
+
+
+def test_csrf_blocks_authenticated_write_without_token(client):
+    prev_testing = app.config.get("TESTING", False)
+    app.config["TESTING"] = False
+    try:
+        register(client)
+        me = client.get("/api/auth/me")
+        assert me.status_code == 200
+        csrf = me.get_json()["csrf_token"]
+        assert isinstance(csrf, str) and csrf
+
+        blocked = client.post("/api/setup", json={"weight_lb": 160, "is_male": True})
+        assert blocked.status_code == 403
+        assert "csrf" in blocked.get_json()["error"].lower()
+
+        ok = client.post("/api/setup", json={"weight_lb": 160, "is_male": True}, headers={"X-CSRF-Token": csrf})
+        assert ok.status_code == 200
+    finally:
+        app.config["TESTING"] = prev_testing
+
+
+def test_password_reset_request_rate_limit(client, monkeypatch):
+    monkeypatch.setenv("PASSWORD_RESET_RATE_LIMIT_WINDOW_SEC", "60")
+    monkeypatch.setenv("PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS", "2")
+
+    one = client.post("/api/auth/password-reset/request", json={"email": "resetlimit@example.edu"})
+    two = client.post("/api/auth/password-reset/request", json={"email": "resetlimit@example.edu"})
+    three = client.post("/api/auth/password-reset/request", json={"email": "resetlimit@example.edu"})
+    assert one.status_code == 200
+    assert two.status_code == 200
+    assert three.status_code == 429
+    assert "Too many reset requests" in three.get_json()["error"]
+
+
 def test_privacy_page_is_public(client):
     res = client.get("/privacy")
     assert res.status_code == 200

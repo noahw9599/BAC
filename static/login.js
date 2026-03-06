@@ -3,17 +3,27 @@ const API = {
   authRegister: "/api/auth/register",
   authLogin: "/api/auth/login",
 };
+let csrfToken = "";
 
 function $(id) {
   return document.getElementById(id);
 }
 
 async function fetchJSON(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const headers = { "Content-Type": "application/json", ...options.headers };
+  if (csrfToken && ["POST", "PATCH", "DELETE", "PUT"].includes(method)) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
+    method,
     ...options,
   });
   const data = await res.json().catch(() => ({}));
+  if (typeof data?.csrf_token === "string" && data.csrf_token) {
+    csrfToken = data.csrf_token;
+  }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
@@ -70,6 +80,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setAuthMode("login");
   try {
     const me = await fetchJSON(API.authMe);
+    csrfToken = me.csrf_token || "";
     if (me.authenticated) {
       redirectToApp();
       return;

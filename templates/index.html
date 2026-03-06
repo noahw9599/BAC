@@ -157,6 +157,11 @@
             <button type="button" class="btn btn-secondary" id="btn-risk-ride">Call ride/campus help</button>
           </div>
         </div>
+        <div class="card-lite">
+          <h3>Night nudges</h3>
+          <p class="mini-help">Short reminders to keep your night safer.</p>
+          <div id="retention-nudges" class="friend-list"></div>
+        </div>
         </div>
 
         <div class="current-subpanel" data-current-view="plan">
@@ -266,8 +271,27 @@
       <section class="card-lite">
         <h3>Session debrief</h3>
         <p class="mini-help">Get a quick summary of your current active session and safer-next-time suggestions.</p>
-        <button type="button" class="btn btn-secondary" id="btn-session-debrief">Generate debrief</button>
+        <div class="friend-actions">
+          <button type="button" class="btn btn-secondary" id="btn-session-debrief">Generate debrief</button>
+          <button type="button" class="btn btn-primary" id="btn-share-debrief">Share summary</button>
+        </div>
+        <p class="group-summary" id="debrief-share-status"></p>
         <pre id="debrief-content" class="group-summary">No debrief yet.</pre>
+        <div class="chart-insights">
+          <div class="mini-card"><p class="mini-title">Peak BAC</p><p class="mini-value" id="debrief-peak">-</p></div>
+          <div class="mini-card"><p class="mini-title">Time over 0.08</p><p class="mini-value" id="debrief-over-limit">-</p></div>
+          <div class="mini-card"><p class="mini-title">Sober ETA</p><p class="mini-value" id="debrief-sober-at">-</p></div>
+        </div>
+      </section>
+      <section class="card-lite">
+        <h3>Weekly trends</h3>
+        <p class="mini-help">Use this to spot patterns over the last four weeks.</p>
+        <div class="chart-insights">
+          <div class="mini-card"><p class="mini-title">4-week avg drinks/session</p><p class="mini-value" id="weekly-avg-drinks">0.0</p></div>
+          <div class="mini-card"><p class="mini-title">4-week sessions</p><p class="mini-value" id="weekly-session-count">0</p></div>
+          <div class="mini-card"><p class="mini-title">Heaviest week</p><p class="mini-value" id="weekly-heaviest">-</p></div>
+        </div>
+        <div id="weekly-trend-list" class="friend-list"></div>
       </section>
     </section>
 

@@ -143,6 +143,27 @@ If your machine has a top-level `code/` folder:
 python -m pytest -q -p no:debugging
 ```
 
+### Deploy Smoke Test (Render URL)
+
+Run this after each deploy before sharing the link:
+
+```powershell
+python scripts/smoke_deploy.py --base-url https://bac-tracker-web-k0qa.onrender.com
+```
+
+What it verifies:
+- `/readyz` is healthy
+- session + CSRF bootstrap works
+- register flow works
+- authenticated write (`/api/setup`, `/api/drink`) succeeds
+- `/api/state` reflects at least one logged drink
+
+One-click option in GitHub:
+1. Open `Actions` in this repo.
+2. Select `Deploy Smoke Test`.
+3. Click `Run workflow`.
+4. Keep `base_url` as `https://bac-tracker-web-k0qa.onrender.com` (or set another deploy URL).
+
 ## API Highlights
 
 - Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
@@ -178,6 +199,9 @@ If you are on Render free tier and cannot attach a disk, use managed Postgres:
 3. Keep `SESSION_COOKIE_SECURE=1` for HTTPS deployments.
 4. Leave `APP_DB_PATH` unset in production (app now prioritizes `DATABASE_URL`).
 5. For fully durable feedback storage, leave `FEEDBACK_DB_PATH` unset so feedback also uses Postgres.
+6. CSRF protection is enabled by default for authenticated API writes.
+   - Keep `CSRF_PROTECT=1` in production.
+   - Use `CSRF_PROTECT=0` only for temporary troubleshooting.
 
 For feedback feed:
 
@@ -194,6 +218,17 @@ Expected:
 - `"db_engine": "postgres"` (recommended for persistent production data)
 - `"checks.auth_db_init_ok": true`
 - `"checks.feedback_db_init_ok": true`
+
+### Pre-Scale Test Gate (Run Before Any Large Beta Night)
+
+1. Deploy latest `main` and confirm Render health check uses `/readyz`.
+2. Hit:
+   - `/healthz` (liveness)
+   - `/readyz` (storage readiness)
+   - `/api/admin/db-check?token=<ADMIN_TOKEN>` (deep DB check)
+3. Validate auth/session persistence across refresh + logout/login with 2 test accounts.
+4. Run `pytest -q` and require green before sharing test link.
+5. If `/readyz` fails or login/session persistence regresses, rollback immediately to previous known-good deploy.
 
 ## Safety + Scope Notes
 

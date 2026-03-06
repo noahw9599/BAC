@@ -76,6 +76,8 @@ let emergencyContacts = [];
 let selectedDrinkCategory = "all";
 let addDrinkInFlight = false;
 let activeCurrentView = "log";
+let latestDebrief = null;
+let csrfToken = "";
 
 function $(id) {
   return document.getElementById(id);
@@ -88,12 +90,21 @@ function setDrinkButtonsBusy(busy) {
 }
 
 async function fetchJSON(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const headers = { "Content-Type": "application/json", ...options.headers };
+  if (csrfToken && ["POST", "PATCH", "DELETE", "PUT"].includes(method)) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
   const res = await fetch(url, {
     cache: "no-store",
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
+    method,
     ...options,
   });
   const data = await res.json().catch(() => ({}));
+  if (typeof data?.csrf_token === "string" && data.csrf_token) {
+    csrfToken = data.csrf_token;
+  }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
@@ -173,6 +184,7 @@ function setAuthUI(authenticated, user = null) {
     refreshQuickAdd();
     savedSessionsCache = [];
     savedSessionDates = [];
+    latestDebrief = null;
     if (setup) setup.style.display = "none";
     if (tracking) tracking.style.display = "none";
     setAuthStatus("Sign in to save and reload past sessions.");
@@ -186,6 +198,8 @@ function setAuthUI(authenticated, user = null) {
     renderEmergencyContacts();
     renderAccountPrivacySummary(null);
     renderSocialStatus();
+    renderWeeklyTrends([]);
+    renderRetentionNudges({});
     window.location.href = "/login";
     return;
   }
@@ -270,6 +284,7 @@ function renderEmergencyContacts() {
 async function refreshAuth() {
   try {
     const data = await fetchJSON(API.authMe);
+    csrfToken = data.csrf_token || "";
     currentUser = data.authenticated ? data.user : null;
     serverFavorites = [];
     setAuthUI(Boolean(currentUser), currentUser);
@@ -901,6 +916,7 @@ async function loadServerFavorites() {
 
 async function authLogout() {
   await fetchJSON(API.authLogout, { method: "POST" });
+  csrfToken = "";
   currentUser = null;
   window.location.href = "/login";
   renderMyFriendProfile();
@@ -1553,9 +1569,12 @@ async function revokeAllPrivacy() {
 async function loadSessionDebrief() {
   const box = $("debrief-content");
   if (!box) return;
+  const shareStatus = $("debrief-share-status");
+  if (shareStatus) shareStatus.textContent = "";
   box.textContent = "Loading debrief...";
   try {
     const data = await fetchJSON(API.sessionDebrief);
+    latestDebrief = data;
     const suggestions = (data.suggestions || []).map((s) => `- ${s}`).join("\n");
     box.textContent = [
       `Peak BAC: ${Number(data.peak_bac || 0).toFixed(3)}`,
@@ -1566,8 +1585,46 @@ async function loadSessionDebrief() {
       "Suggestions:",
       suggestions || "- Keep safe pacing and transportation planning.",
     ].join("\n");
+    const peak = $("debrief-peak");
+    const over = $("debrief-over-limit");
+    const sober = $("debrief-sober-at");
+    if (peak) peak.textContent = Number(data.peak_bac || 0).toFixed(3);
+    if (over) over.textContent = `${data.minutes_over_legal_limit || 0} min`;
+    if (sober) sober.textContent = formatSoberAt(data.hours_until_sober_now || 0);
   } catch (err) {
+    latestDebrief = null;
     box.textContent = err.message || "Debrief unavailable.";
+  }
+}
+
+async function shareDebrief() {
+  const status = $("debrief-share-status");
+  if (!latestDebrief) {
+    if (status) status.textContent = "Generate debrief first.";
+    return;
+  }
+  const advice = latestState?.drive_advice?.action || "Use caution and do not drive if unsure.";
+  const text = [
+    "Night summary",
+    `Peak BAC: ${Number(latestDebrief.peak_bac || 0).toFixed(3)}`,
+    `Time >= 0.08: ${latestDebrief.minutes_over_legal_limit || 0} min`,
+    `Sober around: ${formatSoberAt(latestDebrief.hours_until_sober_now || 0)}`,
+    `Drive guidance: ${advice}`,
+  ].join(" | ");
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "Night summary", text });
+      if (status) status.textContent = "Summary shared.";
+      return;
+    }
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      if (status) status.textContent = "Summary copied.";
+      return;
+    }
+    if (status) status.textContent = "Sharing not supported on this device.";
+  } catch (_) {
+    if (status) status.textContent = "Sharing canceled.";
   }
 }
 
@@ -1882,6 +1939,69 @@ function renderHistorySummary(items) {
   maxEl.textContent = String(max);
 }
 
+function getWeekKey(ymd) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ""))) return "";
+  const d = new Date(`${ymd}T00:00:00`);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function renderWeeklyTrends(items) {
+  const list = $("weekly-trend-list");
+  const avgEl = $("weekly-avg-drinks");
+  const countEl = $("weekly-session-count");
+  const heavyEl = $("weekly-heaviest");
+  if (!list || !avgEl || !countEl || !heavyEl) return;
+
+  const recent = (Array.isArray(items) ? items : [])
+    .filter((x) => Boolean(x?.session_date))
+    .slice(0, 140);
+
+  const byWeek = new Map();
+  recent.forEach((item) => {
+    const key = getWeekKey(item.session_date);
+    if (!key) return;
+    const current = byWeek.get(key) || { sessions: 0, drinks: 0 };
+    current.sessions += 1;
+    current.drinks += Number(item.drink_count || 0);
+    byWeek.set(key, current);
+  });
+
+  const rows = Array.from(byWeek.entries())
+    .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
+    .slice(0, 4);
+
+  if (!rows.length) {
+    avgEl.textContent = "0.0";
+    countEl.textContent = "0";
+    heavyEl.textContent = "-";
+    list.innerHTML = `<div class="friend-row"><div class="friend-counts">No saved session data for trends yet.</div></div>`;
+    return;
+  }
+
+  const totalSessions = rows.reduce((sum, [, v]) => sum + v.sessions, 0);
+  const totalDrinks = rows.reduce((sum, [, v]) => sum + v.drinks, 0);
+  const heaviest = rows.reduce((best, row) => (row[1].drinks > best[1].drinks ? row : best), rows[0]);
+
+  avgEl.textContent = (totalDrinks / Math.max(1, totalSessions)).toFixed(1);
+  countEl.textContent = String(totalSessions);
+  heavyEl.textContent = `${formatReadableDate(heaviest[0])} (${heaviest[1].drinks} drinks)`;
+
+  list.innerHTML = "";
+  rows.forEach(([weekStart, v]) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    const avg = v.drinks / Math.max(1, v.sessions);
+    row.innerHTML = `
+      <div class="friend-main">Week of ${formatReadableDate(weekStart)}</div>
+      <div class="friend-counts">${v.sessions} sessions | ${v.drinks} drinks total | ${avg.toFixed(1)} avg/session</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
 async function loadSavedSessions() {
   if (!currentUser) return;
   try {
@@ -1893,11 +2013,40 @@ async function loadSavedSessions() {
       dateInput.value = savedSessionDates[0].session_date;
     }
     renderSavedSessions(savedSessionsCache);
+    renderWeeklyTrends(savedSessionsCache);
   } catch (_) {
     savedSessionsCache = [];
     savedSessionDates = [];
     renderSavedSessions([]);
+    renderWeeklyTrends([]);
   }
+}
+
+function renderRetentionNudges(state) {
+  const list = $("retention-nudges");
+  if (!list) return;
+  const nudges = [];
+  const bac = Number(state?.bac_now || 0);
+  const drinks = Number(state?.drink_count || 0);
+  const pace = Number(state?.chart_data?.pace_drinks_per_hour || 0);
+  const minutesToSober = Math.round(Number(state?.hours_until_sober_from_now || 0) * 60);
+  const events = Array.isArray(state?.session_events) ? state.session_events : [];
+  const newest = events.length ? Math.min(...events.map((e) => Number(e.hours_ago || 24))) : null;
+
+  if (drinks === 0) nudges.push("Start with water and set your ride plan now.");
+  if (pace >= 2.0) nudges.push(`Pace is ${pace.toFixed(1)} drinks/hr. Slow down for the next hour.`);
+  if (bac >= 0.08) nudges.push("You are above legal limit. Do not drive.");
+  if (minutesToSober > 180) nudges.push(`Long tail tonight: about ${Math.round(minutesToSober / 60)}h until sober.`);
+  if (newest != null && newest >= 0.75) nudges.push("No drink logged recently. Keep that break going and hydrate.");
+  if (!nudges.length) nudges.push("Pacing looks steady. Keep rotating water between drinks.");
+
+  list.innerHTML = "";
+  nudges.slice(0, 3).forEach((text) => {
+    const row = document.createElement("div");
+    row.className = "friend-row";
+    row.innerHTML = `<div class="friend-counts">${text}</div>`;
+    list.appendChild(row);
+  });
 }
 
 async function saveCurrentSession() {
@@ -2192,6 +2341,7 @@ async function refreshState() {
   updateRiskAlert(state);
   updateChartInsights(state);
   updatePacePrediction(state);
+  renderRetentionNudges(state);
   renderSessionEvents(state);
 
   const hangoverResult = $("hangover-result");
@@ -2432,6 +2582,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-risk-ride")?.addEventListener("click", () => runSosAction("ride"));
   $("btn-session-debrief")?.addEventListener("click", async () => {
     await loadSessionDebrief();
+  });
+  $("btn-share-debrief")?.addEventListener("click", async () => {
+    await shareDebrief();
   });
   $("social-requests-list")?.addEventListener("click", async (e) => {
     const target = e.target.closest(".social-respond");
