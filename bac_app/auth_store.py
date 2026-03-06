@@ -102,6 +102,23 @@ def _connect(db_path: str):
         yield conn
 
 
+def _insert_and_get_id(conn: _ConnWrapper, query: str, params: tuple[Any, ...] | list[Any]) -> int:
+    values = tuple(params)
+    if conn.is_postgres:
+        q = query.strip().rstrip(";")
+        if "RETURNING" not in q.upper():
+            q = f"{q} RETURNING id"
+        cur = conn.execute(q, values)
+        row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Insert did not return an id")
+        if isinstance(row, dict):
+            return int(row.get("id"))
+        return int(row[0])
+    cur = conn.execute(query, values)
+    return int(cur.lastrowid)
+
+
 def _slugify_username(value: str) -> str:
     base = re.sub(r"[^a-z0-9_]", "", value.strip().lower().replace(" ", "_"))
     return base[:24]
@@ -614,7 +631,8 @@ def create_user(
         with _connect(db_path) as conn:
             chosen_username = _unique_username(conn, username or display_name or email.split("@")[0])
             invite_code = _unique_invite_code(conn)
-            cur = conn.execute(
+            user_id = _insert_and_get_id(
+                conn,
                 """
                 INSERT INTO users (email, password_hash, display_name, username, invite_code, is_male, default_weight_lb)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -630,7 +648,6 @@ def create_user(
                 ),
             )
             conn.commit()
-            user_id = int(cur.lastrowid)
     except Exception as exc:
         # Handle duplicate email/username across SQLite and Postgres backends.
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
@@ -801,7 +818,8 @@ def get_schema_version(db_path: str) -> int | None:
 def save_user_session(db_path: str, *, user_id: int, name: str, payload: dict[str, Any]) -> int:
     payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     with _connect(db_path) as conn:
-        cur = conn.execute(
+        session_id = _insert_and_get_id(
+            conn,
             """
             INSERT INTO saved_sessions (
                 user_id, name, payload_json, is_auto, is_active, started_at, last_event_at, updated_at, ended_at
@@ -811,7 +829,7 @@ def save_user_session(db_path: str, *, user_id: int, name: str, payload: dict[st
             (user_id, name.strip(), payload_json),
         )
         conn.commit()
-        return int(cur.lastrowid)
+        return session_id
 
 
 def get_active_auto_session(db_path: str, *, user_id: int) -> dict[str, Any] | None:
@@ -862,7 +880,8 @@ def upsert_auto_session(
             (user_id,),
         ).fetchone()
         if active is None:
-            cur = conn.execute(
+            session_id = _insert_and_get_id(
+                conn,
                 """
                 INSERT INTO saved_sessions (
                     user_id, name, payload_json, is_auto, is_active, started_at, last_event_at, updated_at, ended_at
@@ -872,7 +891,7 @@ def upsert_auto_session(
                 (user_id, name.strip(), payload_json, event_time_iso, event_time_iso, event_time_iso),
             )
             conn.commit()
-            return int(cur.lastrowid)
+            return session_id
 
         if touch_last_event:
             conn.execute(
@@ -1364,11 +1383,11 @@ def list_friend_feed(db_path: str, *, user_id: int) -> list[dict[str, Any]]:
 def create_group(db_path: str, *, owner_user_id: int, name: str) -> dict[str, Any]:
     invite_code = secrets.token_urlsafe(6)[:8].upper()
     with _connect(db_path) as conn:
-        cur = conn.execute(
+        group_id = _insert_and_get_id(
+            conn,
             "INSERT INTO social_groups (name, invite_code, owner_user_id) VALUES (?, ?, ?)",
             (name.strip(), invite_code, owner_user_id),
         )
-        group_id = int(cur.lastrowid)
         conn.execute(
             "INSERT INTO group_members (group_id, user_id, role, share_enabled) VALUES (?, ?, 'owner', 0)",
             (group_id, owner_user_id),
@@ -1635,7 +1654,8 @@ def create_guardian_link(
 ) -> dict[str, Any]:
     token = secrets.token_urlsafe(24)
     with _connect(db_path) as conn:
-        cur = conn.execute(
+        link_id = _insert_and_get_id(
+            conn,
             """
             INSERT INTO guardian_links (group_id, label, token, receive_alerts, is_active)
             VALUES (?, ?, ?, ?, 1)
@@ -1643,7 +1663,6 @@ def create_guardian_link(
             (group_id, label.strip(), token, 1 if receive_alerts else 0),
         )
         conn.commit()
-        link_id = int(cur.lastrowid)
     return {
         "id": link_id,
         "group_id": group_id,
@@ -1834,12 +1853,12 @@ def list_emergency_contacts(db_path: str, *, user_id: int) -> list[dict[str, Any
 
 def add_emergency_contact(db_path: str, *, user_id: int, name: str, phone: str) -> dict[str, Any]:
     with _connect(db_path) as conn:
-        cur = conn.execute(
+        contact_id = _insert_and_get_id(
+            conn,
             "INSERT INTO emergency_contacts (user_id, name, phone) VALUES (?, ?, ?)",
             (user_id, name.strip(), phone.strip()),
         )
         conn.commit()
-        contact_id = int(cur.lastrowid)
     return {"id": contact_id, "name": name.strip(), "phone": phone.strip()}
 
 
