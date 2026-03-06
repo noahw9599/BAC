@@ -103,6 +103,10 @@ MAX_ACTIVE_SESSION_HOURS = 12.0
 AUTOSAVE_INTERVAL_MINUTES = 15.0
 LOGIN_RATE_LIMIT_WINDOW_SEC = 300
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
+FEEDBACK_RATE_LIMIT_WINDOW_SEC = 60
+FEEDBACK_RATE_LIMIT_MAX_REQUESTS = 8
+SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC = 60
+SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS = 20
 ALLOWED_SIP_MINUTES = {0, 15, 30}
 
 DEFAULT_FEEDBACK_DB_PATH = str(Path("instance") / "feedback.db")
@@ -136,6 +140,7 @@ CAMPUS_PRESETS = [
 ]
 CATALOG_CACHE: dict[str, Any] | None = None
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+RATE_LIMIT_BUCKETS: dict[str, dict[str, list[float]]] = {}
 
 
 @app.before_request
@@ -177,7 +182,7 @@ def _feedback_db_path() -> str:
 
 
 def _auth_db_path() -> str:
-    raw = os.environ.get("APP_DB_PATH") or os.environ.get("DATABASE_URL", DEFAULT_AUTH_DB_PATH)
+    raw = os.environ.get("DATABASE_URL") or os.environ.get("APP_DB_PATH", DEFAULT_AUTH_DB_PATH)
     return str(raw).strip()
 
 
@@ -218,6 +223,21 @@ def _record_login_attempt(key: str) -> None:
     attempts = LOGIN_ATTEMPTS.get(key, [])
     attempts.append(now)
     LOGIN_ATTEMPTS[key] = [x for x in attempts if now - x <= LOGIN_RATE_LIMIT_WINDOW_SEC]
+
+
+def _check_rate_limit(bucket: str, key: str, *, window_sec: int, max_requests: int) -> bool:
+    now = time.time()
+    window = max(1, int(window_sec))
+    cap = max(1, int(max_requests))
+    bucket_map = RATE_LIMIT_BUCKETS.setdefault(bucket, {})
+    attempts = bucket_map.get(key, [])
+    attempts = [x for x in attempts if now - x <= window]
+    if len(attempts) >= cap:
+        bucket_map[key] = attempts
+        return False
+    attempts.append(now)
+    bucket_map[key] = attempts
+    return True
 
 
 def _parse_bool(value: Any, default: bool = True) -> bool:
@@ -871,6 +891,14 @@ def api_social_request():
     user_id = _require_user_id()
     if user_id is None:
         return _auth_required_error()
+    rate_key = f"user:{user_id}"
+    if not _check_rate_limit(
+        "social_write",
+        rate_key,
+        window_sec=SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC,
+        max_requests=SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many social actions. Please wait and try again."}), 429
     data = request.get_json() or {}
     email = str(data.get("email", "")).strip().lower()
     username = str(data.get("username", "")).strip().lower()
@@ -984,6 +1012,14 @@ def api_social_group_create():
     user_id = _require_user_id()
     if user_id is None:
         return _auth_required_error()
+    rate_key = f"user:{user_id}"
+    if not _check_rate_limit(
+        "social_write",
+        rate_key,
+        window_sec=SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC,
+        max_requests=SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many social actions. Please wait and try again."}), 429
     data = request.get_json() or {}
     name = str(data.get("name", "")).strip()
     if len(name) < 3:
@@ -998,6 +1034,14 @@ def api_social_group_join():
     user_id = _require_user_id()
     if user_id is None:
         return _auth_required_error()
+    rate_key = f"user:{user_id}"
+    if not _check_rate_limit(
+        "social_write",
+        rate_key,
+        window_sec=SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC,
+        max_requests=SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many social actions. Please wait and try again."}), 429
     data = request.get_json() or {}
     code = str(data.get("invite_code", "")).strip().upper()
     if len(code) < 4:
@@ -1131,6 +1175,14 @@ def api_social_group_location(group_id: int):
     user_id = _require_user_id()
     if user_id is None:
         return _auth_required_error()
+    rate_key = f"user:{user_id}"
+    if not _check_rate_limit(
+        "social_write",
+        rate_key,
+        window_sec=SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC,
+        max_requests=SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many social actions. Please wait and try again."}), 429
     _ensure_auth_db()
     if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
         return jsonify({"error": "Not a group member"}), 403
@@ -1175,6 +1227,14 @@ def api_social_group_check(group_id: int):
     user_id = _require_user_id()
     if user_id is None:
         return _auth_required_error()
+    rate_key = f"user:{user_id}"
+    if not _check_rate_limit(
+        "social_write",
+        rate_key,
+        window_sec=SOCIAL_WRITE_RATE_LIMIT_WINDOW_SEC,
+        max_requests=SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many social actions. Please wait and try again."}), 429
     _ensure_auth_db()
     if not is_group_member(_auth_db_path(), group_id=group_id, user_id=user_id):
         return jsonify({"error": "Not a group member"}), 403
@@ -1738,6 +1798,14 @@ def api_session_load():
 
 @app.route("/api/feedback", methods=["POST"])
 def api_feedback():
+    identifier = request.remote_addr or "unknown"
+    if not _check_rate_limit(
+        "feedback_submit",
+        identifier,
+        window_sec=FEEDBACK_RATE_LIMIT_WINDOW_SEC,
+        max_requests=FEEDBACK_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many feedback submissions. Please wait and try again."}), 429
     _ensure_feedback_db()
     data = request.get_json() or {}
     message = str(data.get("message", "")).strip()

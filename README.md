@@ -171,9 +171,13 @@ If you are on Render free tier and cannot attach a disk, use managed Postgres:
 
 1. Create a Render Postgres database.
 2. In your web service `Environment`, set:
-   - `DATABASE_URL=<your Postgres connection string>`
+   - `DATABASE_URL=<your Supabase/Render Postgres connection string>`
+   - Prefer Supabase **Session Pooler** URI on Render free tier (IPv4-friendly).
+   - Ensure `?sslmode=require` is present.
+   - URL-encode special characters in password (example: `@` -> `%40`).
 3. Keep `SESSION_COOKIE_SECURE=1` for HTTPS deployments.
-4. Do not use `/tmp/*.db` for auth/session data if you need persistence.
+4. Leave `APP_DB_PATH` unset in production (app now prioritizes `DATABASE_URL`).
+5. For fully durable feedback storage, leave `FEEDBACK_DB_PATH` unset so feedback also uses Postgres.
 
 For feedback feed:
 
