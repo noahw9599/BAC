@@ -156,7 +156,13 @@ def _log_request(response):
 
 
 def _feedback_db_path() -> str:
-    return str(os.environ.get("FEEDBACK_DB_PATH", DEFAULT_FEEDBACK_DB_PATH)).strip()
+    explicit = os.environ.get("FEEDBACK_DB_PATH")
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip()
+    auth_path = _auth_db_path()
+    if _is_db_url(auth_path):
+        return auth_path
+    return DEFAULT_FEEDBACK_DB_PATH
 
 
 def _auth_db_path() -> str:
@@ -169,8 +175,10 @@ def _is_db_url(value: str) -> bool:
 
 
 def _ensure_feedback_db() -> None:
-    db_path = Path(_feedback_db_path())
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = _feedback_db_path()
+    if not _is_db_url(db_path):
+        path_obj = Path(db_path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
     init_feedback_db(str(db_path))
 
 
