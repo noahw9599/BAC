@@ -812,8 +812,40 @@ summary:focus-visible {
 }
 
 .chart-wrap-large {
-  height: 300px;
+  height: 250px;
   margin: 0.2rem 0 0.1rem;
+}
+
+.chart-cursor-controls {
+  margin-bottom: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(11, 19, 38, 0.85);
+}
+
+.chart-cursor-controls label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+#chart-time-slider {
+  width: 100%;
+  margin-top: 0.2rem;
+}
+
+.chart-cursor-readout {
+  margin-top: 0.2rem;
+  font-weight: 700;
+  color: #dbeafe;
+}
+
+.chart-cursor-detail {
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 /* ---- Setup row ---- */

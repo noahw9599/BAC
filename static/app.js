@@ -69,8 +69,9 @@ let campusPresets = [];
 let latestState = null;
 let showAllSocialAlerts = false;
 let attemptedAutoSetup = false;
-let chartMode = "full";
+let chartMode = "last6";
 let chartPaceEnabled = false;
+let chartCursorHours = 0;
 let lastDeletedSessionEvent = null;
 let emergencyContacts = [];
 let selectedDrinkCategory = "all";
@@ -1717,6 +1718,61 @@ function bandLabel(bac) {
   return "Minimal";
 }
 
+function interpolateBacAtTime(curve, t) {
+  if (!Array.isArray(curve) || !curve.length) return 0;
+  const points = curve
+    .map((p) => ({ t: Number(p.t), bac: Number(p.bac) }))
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.bac))
+    .sort((a, b) => a.t - b.t);
+  if (!points.length) return 0;
+  if (t <= points[0].t) return points[0].bac;
+  if (t >= points[points.length - 1].t) return points[points.length - 1].bac;
+  for (let i = 1; i < points.length; i += 1) {
+    const left = points[i - 1];
+    const right = points[i];
+    if (t >= left.t && t <= right.t) {
+      const span = right.t - left.t;
+      if (span <= 0) return right.bac;
+      const ratio = (t - left.t) / span;
+      return left.bac + (right.bac - left.bac) * ratio;
+    }
+  }
+  return points[points.length - 1].bac;
+}
+
+function formatOffsetLabel(hours) {
+  const h = Number(hours || 0);
+  if (Math.abs(h) < 0.01) return "Now";
+  const absH = Math.abs(h);
+  const hh = Math.floor(absH);
+  const mm = Math.round((absH - hh) * 60);
+  const hm = hh > 0 ? `${hh}h${mm ? ` ${mm}m` : ""}` : `${mm}m`;
+  return h < 0 ? `${hm} ago` : `In ${hm}`;
+}
+
+function formatClockAtOffset(hours) {
+  const dt = new Date(Date.now() + Number(hours || 0) * 3600000);
+  return dt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function updateChartCursorDisplay(curve, xMin, xMax) {
+  const slider = $("chart-time-slider");
+  const readout = $("chart-time-readout");
+  const detail = $("chart-time-detail");
+  if (!slider || !readout || !detail) return;
+  slider.min = String(Number(xMin).toFixed(2));
+  slider.max = String(Number(xMax).toFixed(2));
+  slider.step = "0.25";
+  chartCursorHours = Math.max(Number(xMin), Math.min(Number(xMax), Number(chartCursorHours || 0)));
+  slider.value = String(Number(chartCursorHours).toFixed(2));
+
+  const bac = interpolateBacAtTime(curve, chartCursorHours);
+  const band = bandLabel(bac);
+  const action = bac >= 0.08 ? "Do not drive." : bac >= 0.05 ? "Avoid driving." : "Lower immediate risk.";
+  readout.textContent = `${formatOffsetLabel(chartCursorHours)} (${formatClockAtOffset(chartCursorHours)})`;
+  detail.textContent = `Estimated BAC ${bac.toFixed(3)} | ${band} | ${action}`;
+}
+
 function renderChart(state) {
   const curve = getChartCurveByMode(state);
   if (!curve.length) {
@@ -1735,6 +1791,14 @@ function renderChart(state) {
     ...(pacePoints.length ? pacePoints.map((p) => p.x) : [0]),
     12
   );
+  chartCursorHours = Math.max(xMin, Math.min(xMax, Number(chartCursorHours || 0)));
+  const cursorBac = interpolateBacAtTime(curve, chartCursorHours);
+  const curveMax = Math.max(
+    ...basePoints.map((p) => p.y),
+    ...(chartPaceEnabled ? pacePoints.map((p) => p.y) : [0]),
+    0.09
+  );
+  const yMax = Math.min(0.18, Math.max(0.11, Math.ceil((curveMax * 1.2) / 0.01) * 0.01));
 
   const datasets = [
     {
@@ -1781,14 +1845,33 @@ function renderChart(state) {
     });
   }
   datasets.push({
-    label: "Now marker",
-    data: [{ x: 0, y: 0 }, { x: 0, y: 0.22 }],
-    borderColor: "rgba(255,255,255,0.55)",
-    borderDash: [2, 4],
+    label: "Now",
+    data: [{ x: 0, y: 0 }, { x: 0, y: yMax }],
+    borderColor: "rgba(255,255,255,0.35)",
+    borderDash: [2, 3],
     pointRadius: 0,
     fill: false,
     tension: 0,
-    borderWidth: 1.2,
+    borderWidth: 1,
+  });
+  datasets.push({
+    label: "Selected time",
+    data: [{ x: chartCursorHours, y: 0 }, { x: chartCursorHours, y: yMax }],
+    borderColor: "rgba(250,204,21,0.95)",
+    borderDash: [1, 0],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+    borderWidth: 1.8,
+  });
+  datasets.push({
+    type: "scatter",
+    label: "Selected BAC",
+    data: [{ x: chartCursorHours, y: cursorBac }],
+    backgroundColor: "rgba(250,204,21,1)",
+    borderColor: "rgba(15,23,42,0.8)",
+    pointRadius: 4,
+    pointHoverRadius: 5,
   });
 
   const ctx = document.getElementById("bac-chart")?.getContext("2d");
@@ -1808,7 +1891,7 @@ function renderChart(state) {
       },
       y: {
         min: 0,
-        max: 0.18,
+        max: yMax,
         title: { display: true, text: "BAC (%)" },
         grid: { color: "rgba(255,255,255,0.06)" },
         ticks: { color: "#94a3b8" },
@@ -1836,6 +1919,7 @@ function renderChart(state) {
   } else {
     bacChart = new Chart(ctx, { type: "line", data: { datasets }, options });
   }
+  updateChartCursorDisplay(curve, xMin, xMax);
 }
 
 function setupShareButton() {
@@ -2686,6 +2770,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     chartPaceEnabled = !chartPaceEnabled;
     $("btn-chart-pace").classList.toggle("active", chartPaceEnabled);
     $("btn-chart-pace").textContent = chartPaceEnabled ? "Hide pace projection" : "Show pace projection";
+    if (latestState) renderChart(latestState);
+  });
+  $("chart-time-slider")?.addEventListener("input", () => {
+    const slider = $("chart-time-slider");
+    chartCursorHours = Number(slider?.value || 0);
     if (latestState) renderChart(latestState);
   });
   $("session-events-list")?.addEventListener("click", async (e) => {
