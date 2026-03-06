@@ -84,6 +84,59 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function isIosSafari() {
+  const ua = String(navigator.userAgent || "").toLowerCase();
+  const isIOS = /iphone|ipad|ipod/.test(ua);
+  const isSafari = /safari/.test(ua) && !/crios|fxios|edgios|opr\//.test(ua);
+  return isIOS && isSafari;
+}
+
+function isStandalone() {
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
+
+function consumeInstallPromptFlagFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const should = String(url.searchParams.get("install_prompt") || "") === "1";
+    if (should) {
+      url.searchParams.delete("install_prompt");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    return should;
+  } catch (_) {
+    return false;
+  }
+}
+
+function dismissIosInstallPrompt() {
+  document.getElementById("ios-install-prompt")?.remove();
+}
+
+function mountIosInstallPrompt({ force = false } = {}) {
+  if (!force) return;
+  if (!isIosSafari() || isStandalone()) return;
+  const container = document.querySelector(".container");
+  const header = document.querySelector("header");
+  if (!container || !header) return;
+  if (document.getElementById("ios-install-prompt")) return;
+
+  const box = document.createElement("div");
+  box.id = "ios-install-prompt";
+  box.className = "ios-install-prompt";
+  box.innerHTML = `
+    <p class="ios-install-title">Add BAC Tracker to your Home Screen</p>
+    <p class="ios-install-body">In Safari: tap Share, then Add to Home Screen.</p>
+    <div class="ios-install-actions">
+      <button type="button" class="chip" id="btn-ios-install-done">Done</button>
+      <button type="button" class="chip" id="btn-ios-install-dismiss">Dismiss</button>
+    </div>
+  `;
+  header.insertAdjacentElement("afterend", box);
+  document.getElementById("btn-ios-install-done")?.addEventListener("click", dismissIosInstallPrompt);
+  document.getElementById("btn-ios-install-dismiss")?.addEventListener("click", dismissIosInstallPrompt);
+}
+
 function setDrinkButtonsBusy(busy) {
   document.querySelectorAll(".btn-add, .quick-btn").forEach((el) => {
     el.disabled = busy;
@@ -2452,6 +2505,8 @@ async function refreshState() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const showInstallPrompt = consumeInstallPromptFlagFromUrl();
+  mountIosInstallPrompt({ force: showInstallPrompt });
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/static/sw.js").catch(() => {});
   }

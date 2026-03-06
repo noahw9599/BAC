@@ -42,13 +42,14 @@ function setAuthMode(mode) {
   setStatus(isRegister ? "Create an account to start tracking." : "Log in to your existing account.");
 }
 
-function redirectToApp() {
+function redirectToApp(opts = {}) {
   const invite = String(window.__INVITE__ || "").trim();
+  const install = opts.showInstallPrompt ? "&install_prompt=1" : "";
   if (invite) {
-    window.location.href = `/?invite=${encodeURIComponent(invite)}&tab=current`;
+    window.location.href = `/?invite=${encodeURIComponent(invite)}&tab=current${install}`;
     return;
   }
-  window.location.href = "/?tab=current";
+  window.location.href = `/?tab=current${install}`;
 }
 
 async function login() {
@@ -73,7 +74,7 @@ async function register() {
     return;
   }
   await fetchJSON(API.authRegister, { method: "POST", body: JSON.stringify(payload) });
-  redirectToApp();
+  redirectToApp({ showInstallPrompt: true });
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
