@@ -156,11 +156,12 @@ def _log_request(response):
 
 
 def _feedback_db_path() -> str:
-    return os.environ.get("FEEDBACK_DB_PATH", DEFAULT_FEEDBACK_DB_PATH)
+    return str(os.environ.get("FEEDBACK_DB_PATH", DEFAULT_FEEDBACK_DB_PATH)).strip()
 
 
 def _auth_db_path() -> str:
-    return os.environ.get("APP_DB_PATH") or os.environ.get("DATABASE_URL", DEFAULT_AUTH_DB_PATH)
+    raw = os.environ.get("APP_DB_PATH") or os.environ.get("DATABASE_URL", DEFAULT_AUTH_DB_PATH)
+    return str(raw).strip()
 
 
 def _is_db_url(value: str) -> bool:

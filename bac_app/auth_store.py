@@ -22,7 +22,8 @@ except Exception:  # pragma: no cover
 
 
 def _is_postgres_db(db_path: str) -> bool:
-    return db_path.startswith("postgres://") or db_path.startswith("postgresql://")
+    path = str(db_path).strip()
+    return path.startswith("postgres://") or path.startswith("postgresql://")
 
 
 def _adapt_sql_for_postgres(query: str) -> str:
@@ -42,15 +43,15 @@ def _adapt_sql_for_postgres(query: str) -> str:
 
 class _ConnWrapper:
     def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.is_postgres = _is_postgres_db(db_path)
+        self.db_path = str(db_path).strip()
+        self.is_postgres = _is_postgres_db(self.db_path)
         self._row_factory = None
         if self.is_postgres:
             if psycopg is None:
                 raise RuntimeError("psycopg is required for Postgres DATABASE_URL support")
-            self._conn = psycopg.connect(db_path)
+            self._conn = psycopg.connect(self.db_path)
         else:
-            self._conn = sqlite3.connect(db_path)
+            self._conn = sqlite3.connect(self.db_path)
 
     @property
     def row_factory(self):
