@@ -47,11 +47,12 @@
       </section>
 
       <section class="tracking card" id="tracking-section" style="display: none;">
-        <h2 class="section-title">Live now</h2>
+        <h2 class="section-title">Tonight</h2>
         <div class="safety-banner" id="safety-banner">
           <p class="safety-banner-title">Safety first</p>
           <p class="safety-banner-body">Educational estimate only, not legal/medical advice. Never drive after drinking. Use emergency actions if anyone is at risk.</p>
         </div>
+        <p class="mini-help">Fast flow: tap a drink, check your status, keep your group informed.</p>
         <div class="quick-add" id="quick-add"></div>
         <div class="current-view-nav" id="current-view-nav">
           <button type="button" class="current-view-btn active" data-current-view="log">Log</button>
@@ -62,7 +63,7 @@
 
         <div class="current-subpanel active" data-current-view="log">
 
-        <details class="more-options" id="more-options" open>
+        <details class="more-options" id="more-options">
           <summary class="more-options-title">More drink options</summary>
           <div class="add-custom">
             <label for="drink-search">Find a drink fast</label>
@@ -82,7 +83,7 @@
               <button type="button" class="btn btn-add" data-count="2">+2</button>
               <button type="button" class="btn btn-add" data-count="3">+3</button>
             </div>
-            <p class="group-summary">Fast flow: pick drink, tap +1/+2/+3. Use Sip mode only when you want smoother pacing estimates.</p>
+            <p class="group-summary">Pick a drink, tap +1/+2/+3. Use Sip mode only if you drank slowly over 15-30 minutes.</p>
             <div class="time-ago-toggle">
               <span class="time-ago-label">Had it earlier?</span>
               <div class="time-ago-chips" id="time-ago-chips">
@@ -108,12 +109,15 @@
           <div class="stat stat-primary"><span class="stat-value" id="sober-in">-</span><span class="stat-label">Sober at</span></div>
           <div class="stat stat-primary"><span class="stat-value" id="drive-pill">Checking...</span><span class="stat-label">Drive status</span></div>
         </div>
-        <div class="stats stats-secondary">
-          <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
-          <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
-          <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
-          <div class="stat"><span class="stat-value" id="total-sugar">0</span><span class="stat-label">Sugar</span></div>
-        </div>
+        <details class="more-options">
+          <summary class="more-options-title">Session totals</summary>
+          <div class="stats stats-secondary">
+            <div class="stat"><span class="stat-value" id="drinks-logged">0</span><span class="stat-label">Drinks</span></div>
+            <div class="stat"><span class="stat-value" id="total-calories">0</span><span class="stat-label">Cal</span></div>
+            <div class="stat"><span class="stat-value" id="total-carbs">0</span><span class="stat-label">Carbs</span></div>
+            <div class="stat"><span class="stat-value" id="total-sugar">0</span><span class="stat-label">Sugar</span></div>
+          </div>
+        </details>
 
         <div class="chart-card card-lite">
           <div class="chart-head">
@@ -143,7 +147,7 @@
         </div>
 
         <div class="drive-card card-lite">
-          <h3>Can I drive?</h3>
+          <h3>Drive guidance</h3>
           <p class="mini-help">Conservative estimate only, not legal advice. If unsure, do not drive.</p>
           <p class="drive-status" id="drive-status">No data yet</p>
           <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
