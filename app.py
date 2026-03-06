@@ -144,6 +144,14 @@ CAMPUS_PRESETS = [
         "non_emergency_phone": "310-825-1491",
         "emergency_phone": "911",
     },
+    {
+        "id": "uf",
+        "name": "University of Florida",
+        "safe_ride_label": "SNAP Safety Escort (352-392-SNAP)",
+        "safe_ride_url": "https://police.ufl.edu/how-do-i/brochures-safety-tips/persons-crimes/",
+        "non_emergency_phone": "352-392-1111",
+        "emergency_phone": "911",
+    },
 ]
 CATALOG_CACHE: dict[str, Any] | None = None
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}

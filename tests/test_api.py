@@ -699,6 +699,10 @@ def test_campus_presets_available(client):
     items = res.get_json()["items"]
     assert len(items) >= 1
     assert {"id", "name", "emergency_phone"}.issubset(items[0].keys())
+    uf = next((x for x in items if x.get("id") == "uf"), None)
+    assert uf is not None
+    assert uf["emergency_phone"] == "911"
+    assert "352-392-1111" in str(uf.get("non_emergency_phone", ""))
 
 
 def test_session_debrief_requires_active_session(client):
