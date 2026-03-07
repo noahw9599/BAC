@@ -732,11 +732,7 @@ summary:focus-visible {
 }
 
 .quick-log-actions {
-  position: sticky;
-  top: 3.1rem;
-  z-index: 4;
-  background: rgba(15, 23, 42, 0.94);
-  backdrop-filter: blur(4px);
+  position: static;
 }
 
 .quick-log-actions h3 {
