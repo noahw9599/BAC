@@ -374,8 +374,14 @@ def test_favorites_persist_per_user(client):
     favs = client.get("/api/favorites")
     assert favs.status_code == 200
     ids = favs.get_json()["favorites"]
-    assert ids[0] == "vodka-soda"
     assert "bud-light" in ids
+    assert "truly" in ids
+    assert "vodka-soda" in ids
+
+    client.post("/api/drink", json={"catalog_id": "bud-light", "count": 3, "hours_ago": 0})
+    ranked = client.get("/api/favorites")
+    assert ranked.status_code == 200
+    assert ranked.get_json()["favorites"][0] == "bud-light"
 
     client.post("/api/auth/logout")
     login = client.post("/api/auth/login", json={"email": "fav@example.edu", "password": "password123"})
@@ -383,7 +389,7 @@ def test_favorites_persist_per_user(client):
 
     favs_again = client.get("/api/favorites")
     assert favs_again.status_code == 200
-    assert favs_again.get_json()["favorites"][0] == "vodka-soda"
+    assert favs_again.get_json()["favorites"][0] == "bud-light"
 
 
 def test_register_requires_gender_and_weight(client):

@@ -187,11 +187,13 @@ def init_db(db_path: str) -> None:
                 CREATE TABLE IF NOT EXISTS user_favorites (
                     user_id BIGINT NOT NULL REFERENCES users(id),
                     catalog_id TEXT NOT NULL,
+                    use_count INTEGER NOT NULL DEFAULT 0,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, catalog_id)
                 )
                 """
             )
+            conn.execute("ALTER TABLE user_favorites ADD COLUMN IF NOT EXISTS use_count INTEGER NOT NULL DEFAULT 0")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS user_social_settings (
@@ -449,12 +451,16 @@ def init_db(db_path: str) -> None:
             CREATE TABLE IF NOT EXISTS user_favorites (
                 user_id INTEGER NOT NULL,
                 catalog_id TEXT NOT NULL,
+                use_count INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 PRIMARY KEY (user_id, catalog_id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
             """
         )
+        fav_cols = {row[1] for row in conn.execute("PRAGMA table_info(user_favorites)").fetchall()}
+        if "use_count" not in fav_cols:
+            conn.execute("ALTER TABLE user_favorites ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS user_social_settings (
@@ -1070,19 +1076,30 @@ def list_recent_session_payloads(db_path: str, *, user_id: int, limit: int = 5) 
     return out
 
 
-def track_favorite_drink(db_path: str, *, user_id: int, catalog_id: str) -> None:
+def track_favorite_drink(db_path: str, *, user_id: int, catalog_id: str, increment: int = 1) -> None:
+    safe_increment = max(1, min(int(increment), 20))
     with _connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM user_favorites WHERE user_id = ? AND catalog_id = ?",
+        row = conn.execute(
+            "SELECT use_count FROM user_favorites WHERE user_id = ? AND catalog_id = ?",
             (user_id, catalog_id),
-        )
-        conn.execute(
-            """
-            INSERT INTO user_favorites (user_id, catalog_id, updated_at)
-            VALUES (?, ?, datetime('now'))
-            """,
-            (user_id, catalog_id),
-        )
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO user_favorites (user_id, catalog_id, use_count, updated_at)
+                VALUES (?, ?, ?, datetime('now'))
+                """,
+                (user_id, catalog_id, safe_increment),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE user_favorites
+                SET use_count = use_count + ?, updated_at = datetime('now')
+                WHERE user_id = ? AND catalog_id = ?
+                """,
+                (safe_increment, user_id, catalog_id),
+            )
         conn.commit()
 
 
@@ -1094,7 +1111,7 @@ def list_favorite_drinks(db_path: str, *, user_id: int, limit: int = 6) -> list[
             SELECT catalog_id
             FROM user_favorites
             WHERE user_id = ?
-            ORDER BY rowid DESC
+            ORDER BY use_count DESC, updated_at DESC
             LIMIT ?
             """,
             (user_id, max(1, min(limit, 20))),

@@ -1668,7 +1668,8 @@ def api_drink():
         catalog_id = data["catalog_id"]
         model.add_drink_catalog(effective_hours_ago, catalog_id, count)
         _ensure_auth_db()
-        track_favorite_drink(_auth_db_path(), user_id=user_id, catalog_id=catalog_id)
+        favorite_increment = max(1, min(int(round(count)), MAX_COUNT))
+        track_favorite_drink(_auth_db_path(), user_id=user_id, catalog_id=catalog_id, increment=favorite_increment)
     else:
         drink_key = data.get("drink_key", "beer")
         model.add_drink_ago(effective_hours_ago, drink_key, count)

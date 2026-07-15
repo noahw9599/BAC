@@ -269,6 +269,46 @@ header h1 {
   margin-top: 0.15rem;
 }
 
+.drink-finder-toggle {
+  margin-top: 0.25rem;
+  border: 1px solid rgba(68, 224, 183, 0.2);
+  border-radius: 18px;
+  background: rgba(3, 8, 12, 0.5);
+  padding: 0.35rem 0.55rem;
+}
+
+.drink-finder-toggle > summary {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  color: var(--primary);
+  font-size: 0.94rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.drink-finder-toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.drink-finder-toggle > summary::after {
+  content: "+";
+  margin-left: 0.45rem;
+  color: var(--primary);
+}
+
+.drink-finder-toggle[open] > summary {
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(68, 224, 183, 0.16);
+  margin-bottom: 0.6rem;
+}
+
+.drink-finder-toggle[open] > summary::after {
+  content: "-";
+}
+
 .add-custom select,
 .drink-finder select {
   width: 100%;
