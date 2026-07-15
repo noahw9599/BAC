@@ -161,9 +161,10 @@ STARTUP_CHECK_DONE = False
 
 @app.before_request
 def _start_timer():
-    _run_startup_storage_checks()
     g._request_started = time.time()
     g._request_id = str(uuid.uuid4())
+    if request.path not in {"/healthz", "/readyz"}:
+        _run_startup_storage_checks()
     if _csrf_required_for_request():
         token = request.headers.get("X-CSRF-Token", "")
         if not _is_valid_csrf_token(token):
