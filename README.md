@@ -221,7 +221,7 @@ Expected:
 
 ### Pre-Scale Test Gate (Run Before Any Large Beta Night)
 
-1. Deploy latest `main` and confirm Render health check uses `/readyz`.
+1. Deploy latest `main` and confirm Render health check uses `/healthz`.
 2. Hit:
    - `/healthz` (liveness)
    - `/readyz` (storage readiness)

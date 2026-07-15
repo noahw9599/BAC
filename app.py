@@ -906,7 +906,7 @@ def api_auth_password_reset_request():
         return jsonify({"error": "Too many reset requests. Please try again later."}), 429
     token = create_password_reset_token(_auth_db_path(), email=email)
     if token:
-        app.logger.info("Password reset token created for email=%s token=%s", email, token)
+        app.logger.info("Password reset token created for email=%s", email)
     return jsonify({"ok": True, "message": "If the account exists, reset instructions have been generated."})
 
 
