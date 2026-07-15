@@ -17,14 +17,14 @@
   <div class="container">
     <header>
       <h1>BAC Tracker</h1>
-      <p class="tagline">Track BAC, nutrition, and recovery timing. Educational estimate only, not legal/medical advice. Never drive after drinking.</p>
+      <p class="tagline">Fast drink logging, BAC estimates, ride guidance, and group safety.</p>
     </header>
 
     <nav class="app-tabs" aria-label="Main tabs">
-      <button type="button" class="tab-btn active" data-tab="current">Live Track</button>
+      <button type="button" class="tab-btn active" data-tab="current">Live</button>
       <button type="button" class="tab-btn" data-tab="history">History</button>
-      <button type="button" class="tab-btn" data-tab="social">Social</button>
-      <button type="button" class="tab-btn" data-tab="account">Account</button>
+      <button type="button" class="tab-btn" data-tab="social">Group</button>
+      <button type="button" class="tab-btn" data-tab="account">Me</button>
     </nav>
 
     <section class="tab-panel active" id="tab-current">
@@ -49,8 +49,8 @@
       <section class="tracking card" id="tracking-section" style="display: none;">
         <h2 class="section-title">Tonight</h2>
         <div class="safety-banner" id="safety-banner">
-          <p class="safety-banner-title">Safety first</p>
-          <p class="safety-banner-body">Educational estimate only, not legal/medical advice. Never drive after drinking. Use emergency actions if anyone is at risk.</p>
+          <p class="safety-banner-title">Estimate only</p>
+          <p class="safety-banner-body">Never drive after drinking. Use ride or emergency actions if anyone is at risk.</p>
         </div>
         <div class="current-view-nav" id="current-view-nav">
           <button type="button" class="current-view-btn active" data-current-view="log">Log</button>
@@ -67,12 +67,53 @@
           <div class="stat stat-primary"><span class="stat-value" id="drive-pill">Checking...</span><span class="stat-label">Drive status</span></div>
         </div>
 
-        <div class="quick-log-actions card-lite">
+        <div class="quick-log-actions card-lite add-drink-panel">
           <div class="section-row">
-            <h3>Quick add</h3>
+            <div>
+              <h3>Add a drink</h3>
+              <p class="mini-help">Favorites first, full bar search right below.</p>
+            </div>
             <span class="tiny-pill">1 tap</span>
           </div>
           <div class="quick-add" id="quick-add"></div>
+          <div class="drink-finder">
+            <label for="drink-search">Search the bar menu</label>
+            <input type="search" id="drink-search" placeholder="Vodka cran, tequila soda, beer..." autocomplete="off">
+            <div class="friend-actions drink-filter-chips" id="drink-filter-chips">
+              <button type="button" class="chip active drink-filter" data-category="all">All</button>
+              <button type="button" class="chip drink-filter" data-category="beer">Beer</button>
+              <button type="button" class="chip drink-filter" data-category="seltzer">Seltzer</button>
+              <button type="button" class="chip drink-filter" data-category="wine">Wine</button>
+              <button type="button" class="chip drink-filter" data-category="liquor">Liquor</button>
+              <button type="button" class="chip drink-filter" data-category="cocktail">Cocktails</button>
+            </div>
+            <label for="drink-catalog">Drink</label>
+            <select id="drink-catalog" aria-label="Choose drink"></select>
+            <div class="add-buttons">
+              <button type="button" class="btn btn-add" data-count="1">+1</button>
+              <button type="button" class="btn btn-add" data-count="2">+2</button>
+              <button type="button" class="btn btn-add" data-count="3">+3</button>
+            </div>
+            <div class="log-options-grid">
+              <div class="time-ago-toggle">
+                <span class="time-ago-label">Had it earlier?</span>
+                <div class="time-ago-chips" id="time-ago-chips">
+                  <button type="button" class="chip active" data-hours="0">Now</button>
+                  <button type="button" class="chip" data-hours="0.5">30m</button>
+                  <button type="button" class="chip" data-hours="1">1h</button>
+                  <button type="button" class="chip" data-hours="2">2h</button>
+                </div>
+              </div>
+              <div class="time-ago-toggle">
+                <span class="time-ago-label">Sip mode</span>
+                <div class="time-ago-chips" id="sip-mode-chips">
+                  <button type="button" class="chip active" data-sip-minutes="0">Off</button>
+                  <button type="button" class="chip" data-sip-minutes="15">15m</button>
+                  <button type="button" class="chip" data-sip-minutes="30">30m</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="drive-card card-lite">
@@ -136,46 +177,6 @@
           </div>
         </details>
 
-        <details class="more-options" id="more-options">
-          <summary class="more-options-title">More drink options</summary>
-          <div class="add-custom">
-            <label for="drink-search">Find a drink fast</label>
-            <input type="search" id="drink-search" placeholder="Search beer, liquor, cocktail, brand..." autocomplete="off">
-            <div class="friend-actions drink-filter-chips" id="drink-filter-chips">
-              <button type="button" class="chip active drink-filter" data-category="all">All</button>
-              <button type="button" class="chip drink-filter" data-category="beer">Beer</button>
-              <button type="button" class="chip drink-filter" data-category="seltzer">Seltzer</button>
-              <button type="button" class="chip drink-filter" data-category="wine">Wine</button>
-              <button type="button" class="chip drink-filter" data-category="liquor">Liquor</button>
-              <button type="button" class="chip drink-filter" data-category="cocktail">Cocktails</button>
-            </div>
-            <label for="drink-catalog">Drink</label>
-            <select id="drink-catalog" aria-label="Choose drink"></select>
-            <div class="add-buttons">
-              <button type="button" class="btn btn-add" data-count="1">+1</button>
-              <button type="button" class="btn btn-add" data-count="2">+2</button>
-              <button type="button" class="btn btn-add" data-count="3">+3</button>
-            </div>
-            <p class="group-summary">Pick a drink, tap +1/+2/+3. Use Sip mode only if you drank slowly over 15-30 minutes.</p>
-            <div class="time-ago-toggle">
-              <span class="time-ago-label">Had it earlier?</span>
-              <div class="time-ago-chips" id="time-ago-chips">
-                <button type="button" class="chip active" data-hours="0">Now</button>
-                <button type="button" class="chip" data-hours="0.5">30 min</button>
-                <button type="button" class="chip" data-hours="1">1 hr</button>
-                <button type="button" class="chip" data-hours="2">2 hr</button>
-              </div>
-            </div>
-            <div class="time-ago-toggle">
-              <span class="time-ago-label">Sip mode</span>
-              <div class="time-ago-chips" id="sip-mode-chips">
-                <button type="button" class="chip active" data-sip-minutes="0">Off</button>
-                <button type="button" class="chip" data-sip-minutes="15">15 min</button>
-                <button type="button" class="chip" data-sip-minutes="30">30 min</button>
-              </div>
-            </div>
-          </div>
-        </details>
         </div>
 
         <div class="current-subpanel" data-current-view="plan">
