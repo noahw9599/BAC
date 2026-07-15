@@ -118,10 +118,11 @@
 
         <div class="drive-card card-lite">
           <h3>Drive guidance</h3>
-          <p class="mini-help">Conservative estimate only, not legal advice. If unsure, do not drive.</p>
+          <p class="mini-help">Estimate only, not legal advice. App data cannot prove you are safe or legal to drive.</p>
           <p class="drive-status" id="drive-status">No data yet</p>
           <p class="drive-message" id="drive-message">Log drinks to see conservative guidance.</p>
           <p class="drive-action" id="drive-action"></p>
+          <p class="estimate-band" id="estimate-band">BAC estimate range appears after drinks are logged.</p>
           <div class="friend-actions">
             <button type="button" class="btn btn-secondary" id="btn-drive-ride">Get a ride</button>
             <button type="button" class="btn btn-danger" id="btn-drive-911">Call 911</button>
@@ -226,6 +227,15 @@
             <div class="night-tools">
               <h3>All-night tools</h3>
               <div class="night-grid">
+                <div class="mini-card">
+                  <p class="mini-title">Food context</p>
+                  <p class="mini-help" id="food-hint">Food can slow absorption, but this app does not reduce BAC based on food.</p>
+                  <div class="time-ago-chips food-chips" id="food-context-chips">
+                    <button type="button" class="chip active" data-food-context="unknown">Unknown</button>
+                    <button type="button" class="chip" data-food-context="ate">Ate</button>
+                    <button type="button" class="chip" data-food-context="empty">Empty</button>
+                  </div>
+                </div>
                 <div class="mini-card">
                   <p class="mini-title">Hydration</p>
                   <p class="mini-value" id="water-progress">0 / 0 oz</p>
@@ -495,8 +505,13 @@
         </div>
 
         <div class="card-lite">
-          <h3>Onboarding</h3>
+          <h3>Testing readiness</h3>
           <p class="mini-help" id="onboarding-status">Loading onboarding steps...</p>
+        </div>
+
+        <div class="card-lite">
+          <h3>Storage status</h3>
+          <p class="mini-help" id="storage-status">Checking account storage...</p>
         </div>
 
         <div class="card-lite danger-zone">

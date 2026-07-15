@@ -1535,6 +1535,82 @@ def api_campus_presets():
     return jsonify({"items": CAMPUS_PRESETS})
 
 
+@app.route("/api/storage/status")
+def api_storage_status():
+    user_id = _require_user_id()
+    if user_id is None:
+        return _auth_required_error()
+
+    auth_path = _auth_db_path()
+    feedback_path = _feedback_db_path()
+    db_engine = "postgres" if _is_db_url(auth_path) else "sqlite"
+    persistent = db_engine == "postgres" or not str(auth_path).startswith("/tmp/")
+    checks: dict[str, Any] = {
+        "auth_db_init_ok": False,
+        "feedback_db_init_ok": False,
+        "using_postgres": db_engine == "postgres",
+        "persistent_storage_likely": persistent,
+    }
+    errors: list[str] = []
+    try:
+        _ensure_auth_db()
+        checks["auth_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"auth_db: {exc}")
+    try:
+        _ensure_feedback_db()
+        checks["feedback_db_init_ok"] = True
+    except Exception as exc:
+        errors.append(f"feedback_db: {exc}")
+
+    return jsonify(
+        {
+            "ok": len(errors) == 0,
+            "db_engine": db_engine,
+            "persistent": persistent,
+            "checks": checks,
+            "errors": errors,
+            "message": (
+                "Accounts, sessions, favorites, groups, and emergency contacts are using Postgres."
+                if db_engine == "postgres"
+                else "This environment is using SQLite. Good for local dev, but not ideal for production testing."
+            ),
+            "feedback_storage": "same_database" if _is_db_url(feedback_path) else "file",
+        }
+    )
+
+
+@app.route("/api/client-error", methods=["POST"])
+def api_client_error():
+    identifier = request.remote_addr or "unknown"
+    if not _check_rate_limit(
+        "client_error",
+        identifier,
+        window_sec=FEEDBACK_RATE_LIMIT_WINDOW_SEC,
+        max_requests=FEEDBACK_RATE_LIMIT_MAX_REQUESTS,
+    ):
+        return jsonify({"error": "Too many error reports."}), 429
+
+    data = request.get_json() or {}
+    message = str(data.get("message", "")).strip()[:500]
+    source = str(data.get("source", "")).strip()[:200]
+    context = data.get("context") if isinstance(data.get("context"), dict) else {}
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    _ensure_feedback_db()
+    feedback_id = save_feedback(
+        _feedback_db_path(),
+        message=f"CLIENT_ERROR: {message}",
+        rating=None,
+        contact=None,
+        context={"source": source, **context},
+        user_agent=request.headers.get("User-Agent", ""),
+    )
+    app.logger.warning("client_error id=%s message=%s source=%s", feedback_id, message, source)
+    return jsonify({"ok": True, "feedback_id": feedback_id})
+
+
 @app.route("/api/favorites")
 def api_favorites():
     user_id = _require_user_id()

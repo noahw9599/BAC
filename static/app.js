@@ -5,6 +5,8 @@ const API = {
   state: "/api/state",
   reset: "/api/reset",
   feedback: "/api/feedback",
+  clientError: "/api/client-error",
+  storageStatus: "/api/storage/status",
   authMe: "/api/auth/me",
   authRegister: "/api/auth/register",
   authLogin: "/api/auth/login",
@@ -41,6 +43,7 @@ const QUICK_ADD_IDS = ["vodka-cran", "vodka-diet-coke", "tequila-sprite", "tequi
 const STORAGE_LAST_DRINK = "drinking-buddy-last-drink";
 const STORAGE_FAVORITES = "drinking-buddy-favorites";
 const STORAGE_WATER_OZ = "drinking-buddy-water-oz";
+const STORAGE_FOOD_CONTEXT = "drinking-buddy-food-context";
 const STORAGE_FRIENDS = "drinking-buddy-friends";
 const STORAGE_TARGET_DATE = "drinking-buddy-target-date";
 const STORAGE_TARGET_TIME = "drinking-buddy-target-time";
@@ -161,6 +164,19 @@ async function fetchJSON(url, options = {}) {
   }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+function reportClientError(message, context = {}) {
+  const text = String(message || "").slice(0, 500);
+  if (!text) return;
+  fetchJSON(API.clientError, {
+    method: "POST",
+    body: JSON.stringify({
+      message: text,
+      source: window.location.pathname,
+      context,
+    }),
+  }).catch(() => {});
 }
 
 function setAuthStatus(text) {
@@ -352,6 +368,7 @@ async function refreshAuth() {
       await loadSocial();
       await loadAccountPrivacySummary();
       await loadEmergencyContacts();
+      await loadStorageStatus();
       updateAccountShareStatus();
       await refreshState();
     } else {
@@ -1099,6 +1116,69 @@ function setStoredText(key, value) {
   } catch (_) {}
 }
 
+function getFoodContext() {
+  const value = getStoredText(STORAGE_FOOD_CONTEXT, "unknown");
+  return ["unknown", "ate", "empty"].includes(value) ? value : "unknown";
+}
+
+function setFoodContext(value) {
+  const next = ["unknown", "ate", "empty"].includes(value) ? value : "unknown";
+  setStoredText(STORAGE_FOOD_CONTEXT, next);
+  renderFoodContext();
+  if (latestState) updateEstimateBand(latestState);
+}
+
+function foodContextLabel(value = getFoodContext()) {
+  if (value === "ate") return "Ate recently";
+  if (value === "empty") return "Empty stomach";
+  return "Food unknown";
+}
+
+function renderFoodContext() {
+  const current = getFoodContext();
+  document.querySelectorAll("#food-context-chips .chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.foodContext === current);
+  });
+  const hint = $("food-hint");
+  if (!hint) return;
+  if (current === "ate") {
+    hint.textContent = "Food may slow alcohol absorption. BAC still may rise later, so estimates stay conservative.";
+  } else if (current === "empty") {
+    hint.textContent = "Empty stomach can make alcohol hit faster. Treat the BAC estimate as more uncertain.";
+  } else {
+    hint.textContent = "Food can change timing, so treat the estimate as a range instead of an exact number.";
+  }
+}
+
+function updateEstimateBand(state) {
+  const el = $("estimate-band");
+  if (!el) return;
+  const bac = Number(state?.bac_now || 0);
+  const drinks = Number(state?.drink_count || 0);
+  if (!drinks) {
+    el.textContent = "No drinks logged. If you drank anything, log it before trusting the estimate.";
+    return;
+  }
+  const food = getFoodContext();
+  const spread = food === "empty" ? 0.018 : food === "ate" ? 0.012 : 0.015;
+  const low = Math.max(0, bac - spread);
+  const high = bac + spread;
+  el.textContent = `Estimate range: ~${low.toFixed(3)}-${high.toFixed(3)} BAC. ${foodContextLabel(food)}. Not proof you can drive.`;
+}
+
+async function loadStorageStatus() {
+  const el = $("storage-status");
+  if (!el || !currentUser) return;
+  try {
+    const data = await fetchJSON(API.storageStatus);
+    const engine = data.db_engine === "postgres" ? "Supabase/Postgres" : "SQLite";
+    const persistence = data.persistent ? "persistent" : "temporary";
+    el.textContent = `${engine} is active for account data (${persistence}). ${data.message || ""}`;
+  } catch (err) {
+    el.textContent = `Storage check unavailable: ${err.message}`;
+  }
+}
+
 function toYmd(dateObj) {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, "0");
@@ -1333,6 +1413,7 @@ function updateDriveAdvice(state) {
   if (!statusEl || !msgEl || !actionEl) return;
 
   const advice = state.drive_advice;
+  updateEstimateBand(state);
   if (!advice) {
     statusEl.textContent = "No data yet";
     statusEl.className = "drive-status";
@@ -1686,18 +1767,22 @@ function updateOnboardingStatus() {
   const el = $("onboarding-status");
   if (!el) return;
   if (!currentUser) {
-    el.textContent = "1) Create account 2) Create or join a group 3) Enable sharing when ready.";
+    el.textContent = "Create account, set weight/gender, add emergency contact, then test with a group.";
     return;
   }
   const hasGroup = socialGroups.length > 0;
   const hasFriends = (socialState.friends || []).length > 0;
   const hasGuardian = guardianLinks.length > 0;
+  const hasEmergency = emergencyContacts.length > 0;
+  const hasProfile = Boolean(currentUser.default_weight_lb && typeof currentUser.is_male === "boolean");
   const steps = [
-    hasGroup ? "Group set up" : "Create or join a safety group",
-    hasFriends ? "Friend network ready" : "Add at least one friend",
-    hasGuardian ? "Guardian link ready" : "Create one guardian link",
+    hasProfile ? "Profile ready" : "Add weight/gender",
+    hasEmergency ? "Emergency contact ready" : "Add emergency contact",
+    hasGroup ? "Group ready" : "Create/join group",
+    hasFriends ? "Friend ready" : "Add friend",
+    hasGuardian ? "Guardian link ready" : "Optional guardian link",
   ];
-  el.textContent = steps.join(" | ");
+  el.textContent = steps.join(" -> ");
 }
 
 function updateChartInsights(state) {
@@ -2505,6 +2590,17 @@ async function refreshState() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  window.addEventListener("error", (event) => {
+    reportClientError(event.message || "Unhandled frontend error", {
+      filename: event.filename || "",
+      line: event.lineno || 0,
+      column: event.colno || 0,
+    });
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    reportClientError(event.reason?.message || String(event.reason || "Unhandled promise rejection"));
+  });
+
   const showInstallPrompt = consumeInstallPromptFlagFromUrl();
   mountIosInstallPrompt({ force: showInstallPrompt });
   if ("serviceWorker" in navigator) {
@@ -2518,6 +2614,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initTabs();
     initCurrentViewNav();
     initializeTargetInputs();
+    renderFoodContext();
     loadFriends();
     renderFriends();
     setupShareButton();
@@ -2721,6 +2818,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-risk-ride")?.addEventListener("click", () => runSosAction("ride"));
   $("btn-session-debrief")?.addEventListener("click", async () => {
     await loadSessionDebrief();
+  });
+
+  $("food-context-chips")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-food-context]");
+    if (!btn) return;
+    setFoodContext(btn.dataset.foodContext || "unknown");
   });
   $("btn-share-debrief")?.addEventListener("click", async () => {
     await shareDebrief();

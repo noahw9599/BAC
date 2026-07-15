@@ -81,6 +81,33 @@ def test_readyz_unhealthy_when_auth_storage_fails(client, monkeypatch):
     assert any("auth storage unavailable" in item for item in body["errors"])
 
 
+def test_storage_status_requires_auth(client):
+    res = client.get("/api/storage/status")
+    assert res.status_code == 401
+
+
+def test_storage_status_reports_sqlite_for_local_dev(client):
+    register(client)
+    res = client.get("/api/storage/status")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body["db_engine"] == "sqlite"
+    assert body["checks"]["auth_db_init_ok"] is True
+    assert body["checks"]["feedback_db_init_ok"] is True
+
+
+def test_client_error_report_saves_feedback(client):
+    res = client.post(
+        "/api/client-error",
+        json={"message": "frontend exploded", "source": "/test", "context": {"screen": "live"}},
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body["feedback_id"] > 0
+
+
 def test_global_write_rate_limit(client, monkeypatch):
     monkeypatch.setenv("WRITE_RATE_LIMIT_WINDOW_SEC", "60")
     monkeypatch.setenv("WRITE_RATE_LIMIT_MAX_REQUESTS", "1")

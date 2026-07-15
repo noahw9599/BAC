@@ -856,6 +856,20 @@ summary:focus-visible {
   font-size: 0.9rem;
 }
 
+.estimate-band {
+  margin: 0.55rem 0 0;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid rgba(248, 193, 74, 0.28);
+  border-radius: 16px;
+  background: rgba(95, 62, 11, 0.22);
+  color: #fde68a;
+  font-size: 0.84rem;
+}
+
+.food-chips {
+  margin-top: 0.55rem;
+}
+
 .feedback textarea {
   width: 100%;
   margin-top: 0.55rem;
